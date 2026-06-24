@@ -1,0 +1,6 @@
+{
+  "name": "Viharix",
+  "description": "A collaborative group travel and shared itinerary manager. Invite co-travelers, discover recommended activities, and coordinate a master travel schedule in real-time.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

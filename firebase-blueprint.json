@@ -1,0 +1,269 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile containing public display information.",
+      "type": "object",
+      "properties": {
+        "displayName": {
+          "type": "string",
+          "description": "The user's chosen display name."
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "The user's registered email address."
+        },
+        "photoURL": {
+          "type": "string",
+          "description": "Optional URL to the user's profile photo."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp indicating when the profile was last updated."
+        }
+      },
+      "required": ["displayName", "email", "updatedAt"]
+    },
+    "Trip": {
+      "title": "Trip",
+      "description": "A trip document containing name, destination, dates, and settings.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "The unique identifier of the trip."
+        },
+        "name": {
+          "type": "string",
+          "description": "The title or name of the trip."
+        },
+        "destination": {
+          "type": "string",
+          "description": "The location/destination of the trip."
+        },
+        "startDate": {
+          "type": "string",
+          "description": "The start date of the trip in YYYY-MM-DD or readable format."
+        },
+        "endDate": {
+          "type": "string",
+          "description": "The end date of the trip."
+        },
+        "context": {
+          "type": "string",
+          "description": "A custom vibe or passenger traveler metadata string."
+        },
+        "shareCode": {
+          "type": "string",
+          "description": "A unique 6-character code for others to join the trip."
+        },
+        "ownerId": {
+          "type": "string",
+          "description": "The user UID of the trip creator and owner."
+        },
+        "customCategories": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Optional list of custom activity categories defined for this trip."
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "ISO timestamp of when the trip was created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "ISO timestamp of when the trip was last updated."
+        }
+      },
+      "required": ["id", "name", "shareCode", "ownerId", "createdAt", "updatedAt"]
+    },
+    "Collaborator": {
+      "title": "Collaborator",
+      "description": "A member of a trip who can view, add, and edit activities.",
+      "type": "object",
+      "properties": {
+        "tripId": {
+          "type": "string",
+          "description": "The ID of the trip this collaborator belongs to."
+        },
+        "userId": {
+          "type": "string",
+          "description": "The user UID of the collaborator."
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Collaborator's public display name."
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "Collaborator's email address."
+        },
+        "role": {
+          "type": "string",
+          "enum": ["owner", "editor"],
+          "description": "The role of the collaborator in this trip."
+        },
+        "joinedAt": {
+          "type": "string",
+          "description": "ISO timestamp of when they joined."
+        },
+        "photoURL": {
+          "type": "string",
+          "description": "Optional profile photo URL."
+        }
+      },
+      "required": ["tripId", "userId", "displayName", "email", "role", "joinedAt"]
+    },
+    "Activity": {
+      "title": "Activity",
+      "description": "An activity idea or planned event for a trip.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "The unique activity ID."
+        },
+        "tripId": {
+          "type": "string",
+          "description": "The ID of the associated trip."
+        },
+        "title": {
+          "type": "string",
+          "description": "The title of the activity."
+        },
+        "category": {
+          "type": "string",
+          "description": "The activity category (e.g. Food, Sightseeing, Rest, or custom)."
+        },
+        "imageURL": {
+          "type": "string",
+          "description": "Optional illustration or picture URL."
+        },
+        "location": {
+          "type": "string",
+          "description": "Optional address or location details."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Optional notes or details about the activity."
+        },
+        "estimatedDuration": {
+          "type": "string",
+          "description": "Optional duration estimation."
+        },
+        "startTime": {
+          "type": "string",
+          "description": "Optional preferred start time (e.g. 14:00)."
+        },
+        "source": {
+          "type": "string",
+          "enum": ["AI Search", "Manual", "Added by collaborator"],
+          "description": "Origin of the activity recommendation."
+        },
+        "sourceDetail": {
+          "type": "string",
+          "description": "Additional source metadata description."
+        },
+        "createdBy": {
+          "type": "string",
+          "description": "Display name of the user who created this activity."
+        },
+        "createdByUserId": {
+          "type": "string",
+          "description": "The user UID of the creator."
+        },
+        "createdByPhotoURL": {
+          "type": "string",
+          "description": "Optional photo URL of the creator."
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "ISO timestamp of creation."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["active", "archived"],
+          "description": "Active state or archived status of the activity."
+        }
+      },
+      "required": ["id", "tripId", "title", "category", "source", "createdBy", "createdAt", "status"]
+    },
+    "ItineraryPlacement": {
+      "title": "ItineraryPlacement",
+      "description": "An association pinning an activity to a specific day, time, and order in the itinerary.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier of the placement."
+        },
+        "tripId": {
+          "type": "string",
+          "description": "The ID of the associated trip."
+        },
+        "activityId": {
+          "type": "string",
+          "description": "The ID of the activity being placed."
+        },
+        "day": {
+          "type": "string",
+          "description": "The day label (e.g. Day 1, Day 2) or date."
+        },
+        "startTime": {
+          "type": "string",
+          "description": "The scheduled start time (e.g. 09:00)."
+        },
+        "endTime": {
+          "type": "string",
+          "description": "Optional scheduled end time."
+        },
+        "sortOrder": {
+          "type": "number",
+          "description": "The visual positioning index."
+        },
+        "addedBy": {
+          "type": "string",
+          "description": "Display name of the user who added it to the plan."
+        },
+        "addedByUserId": {
+          "type": "string",
+          "description": "User UID of the user who added it."
+        },
+        "addedByPhotoURL": {
+          "type": "string",
+          "description": "Optional photo URL of the planner."
+        },
+        "addedAt": {
+          "type": "string",
+          "description": "ISO timestamp of when it was placed."
+        }
+      },
+      "required": ["id", "tripId", "activityId", "day", "startTime", "sortOrder", "addedBy", "addedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Stores user profiles."
+    },
+    "/trips/{tripId}": {
+      "schema": { "$ref": "#/entities/Trip" },
+      "description": "Stores core trip details."
+    },
+    "/trips/{tripId}/collaborators/{userId}": {
+      "schema": { "$ref": "#/entities/Collaborator" },
+      "description": "Stores collaborators for a trip."
+    },
+    "/trips/{tripId}/activities/{activityId}": {
+      "schema": { "$ref": "#/entities/Activity" },
+      "description": "Stores activity ideas for a trip."
+    },
+    "/trips/{tripId}/itineraryPlacements/{placementId}": {
+      "schema": { "$ref": "#/entities/ItineraryPlacement" },
+      "description": "Stores itinerary assignments pinning activities to days and times."
+    }
+  }
+}

@@ -1,0 +1,92 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+    
+    // Global safety & authentication helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+    
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+    
+    // Check if the current user is a collaborator on the given trip
+    function isTripCollaborator(tripId) {
+      return isSignedIn() && exists(/databases/$(database)/documents/trips/$(tripId)/collaborators/$(request.auth.uid));
+    }
+    
+    // Check if the current user is the owner of the given trip
+    function isTripOwner(tripId) {
+      return isSignedIn() && get(/databases/$(database)/documents/trips/$(tripId)).data.ownerId == request.auth.uid;
+    }
+
+    // Check if the trip belongs to a guest (anonymous owner)
+    function isGuestTrip(tripId) {
+      return get(/databases/$(database)/documents/trips/$(tripId)).data.ownerId == "anonymous_owner";
+    }
+
+    // User profile permissions
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow write: if isOwner(userId);
+    }
+
+    // Trip permissions and its subcollections
+    match /trips/{tripId} {
+      // Anyone signed in can read trips, or any guest can read an anonymous trip
+      allow read: if isSignedIn() || resource.data.ownerId == "anonymous_owner";
+      
+      // Only signed-in users can create a trip (as themselves), or anyone can create an anonymous trip
+      allow create: if (isSignedIn() && request.resource.data.ownerId == request.auth.uid)
+        || request.resource.data.ownerId == "anonymous_owner";
+         
+      // Only the trip owner or a collaborator can update trip details, or anyone if guest trip
+      allow update: if (resource.data.ownerId == "anonymous_owner") 
+        || (isSignedIn() && (isTripOwner(tripId) || isTripCollaborator(tripId)));
+      
+      // Only the trip owner can delete a trip, or anyone if guest trip
+      allow delete: if (resource.data.ownerId == "anonymous_owner")
+        || isTripOwner(tripId);
+
+      // Collaborator subcollection
+      match /collaborators/{userId} {
+        allow read: if isSignedIn() || isGuestTrip(tripId);
+        
+        // A user can create/update their own collaborator document to join a trip, or the trip owner can manage it (or anyone on a guest trip)
+        allow create, update: if isGuestTrip(tripId) 
+          || (isSignedIn() && (userId == request.auth.uid || isTripOwner(tripId)));
+        
+        // A collaborator can leave, or the trip owner can remove them (or anyone on a guest trip)
+        allow delete: if isGuestTrip(tripId)
+          || (isSignedIn() && (userId == request.auth.uid || isTripOwner(tripId)));
+      }
+
+      // Activities subcollection
+      match /activities/{activityId} {
+        allow read: if isSignedIn() || isGuestTrip(tripId);
+        
+        // Collaborators or trip owners can add, update, or remove activities (or anyone on a guest trip)
+        allow create, update, delete: if isGuestTrip(tripId)
+          || (isSignedIn() && (isTripOwner(tripId) || isTripCollaborator(tripId)));
+      }
+
+      // Itinerary placements subcollection
+      match /itineraryPlacements/{placementId} {
+        allow read: if isSignedIn() || isGuestTrip(tripId);
+        
+        // Collaborators or trip owners can schedule or arrange activities (or anyone on a guest trip)
+        allow create, update, delete: if isGuestTrip(tripId)
+          || (isSignedIn() && (isTripOwner(tripId) || isTripCollaborator(tripId)));
+      }
+    }
+  }
+}
