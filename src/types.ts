@@ -40,12 +40,17 @@ export interface Activity {
   estimatedDuration?: string;
   startTime?: string;
   source: "AI Search" | "Manual" | "Added by collaborator";
+  rating?: string;
+  media?: string[];
   sourceDetail?: string; // e.g. "Suggested by AI for Dinner", "Added by John"
   createdBy: string; // user display name or ID
   createdByUserId?: string;
   createdByPhotoURL?: string;
   createdAt: any;
   status: "active" | "archived";
+  latitude?: number;
+  longitude?: number;
+  likes?: string[];
 }
 
 export interface ItineraryPlacement {

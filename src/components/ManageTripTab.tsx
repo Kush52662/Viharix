@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import {
   Box,
   Typography,
@@ -6,6 +6,11 @@ import {
   Paper,
   Divider,
   Button,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogContentText,
+  DialogActions,
 } from "@mui/material";
 import { 
   Users, 
@@ -17,7 +22,8 @@ import {
   Settings, 
   Calendar, 
   MapPin,
-  Sparkles
+  Sparkles,
+  Trash2
 } from "lucide-react";
 import { Collaborator, Trip } from "../types";
 import { User as FirebaseUser } from "firebase/auth";
@@ -29,6 +35,7 @@ interface ManageTripTabProps {
   onCopyCode: () => void;
   copied: boolean;
   onEditTrip: () => void;
+  onDeleteTrip?: () => void;
 }
 
 export default function ManageTripTab({
@@ -37,13 +44,37 @@ export default function ManageTripTab({
   currentUser,
   onCopyCode,
   copied,
-  onEditTrip
+  onEditTrip,
+  onDeleteTrip
 }: ManageTripTabProps) {
   const isOwner = currentUser && trip.ownerId === currentUser.uid;
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const handleDeleteConfirm = async () => {
+    if (onDeleteTrip) {
+      setIsDeleting(true);
+      try {
+        await onDeleteTrip();
+      } catch (err) {
+        console.error("Failed to delete trip:", err);
+      } finally {
+        setIsDeleting(false);
+        setDeleteDialogOpen(false);
+      }
+    }
+  };
 
   return (
     <Box sx={{ maxWidth: 600, mx: "auto", py: { xs: 1.5, sm: 3 }, px: { xs: 1, sm: 2 } }}>
       
+      {/* Consistent Page Title */}
+      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1.5, px: 0.5 }}>
+        <Typography variant="subtitle1" color="primary" sx={{ fontWeight: "bold" }}>
+          Manage Trip
+        </Typography>
+      </Box>
+
       {/* 1. Clean Trip Profile Dashboard Header */}
       <Paper
         id="manage-trip-profile-card"
@@ -135,7 +166,7 @@ export default function ManageTripTab({
               </Box>
               <Box>
                 <Typography sx={{ color: "text.secondary", fontSize: "0.65rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                  Trip Vibe & AI Context
+                  Trip Style & Preferences
                 </Typography>
                 <Typography sx={{ color: "#111215", fontSize: "0.82rem", fontWeight: 500, mt: 0.2, lineHeight: 1.4 }}>
                   {trip.context}
@@ -257,6 +288,7 @@ export default function ManageTripTab({
                   <Avatar
                     id={`member-avatar-${c.userId}`}
                     src={c.photoURL}
+                    {...({ referrerPolicy: "no-referrer" } as any)}
                     sx={{
                       width: 36,
                       height: 36,
@@ -329,6 +361,115 @@ export default function ManageTripTab({
           })}
         </Box>
       </Paper>
+
+      {/* 4. Danger Zone - Exposed Only to Trip Owner/Creator */}
+      {isOwner && (
+        <Paper
+          id="danger-zone-card"
+          elevation={0}
+          sx={{
+            p: 2.5,
+            borderRadius: "16px",
+            bgcolor: "#FFF8F9",
+            border: "1px solid #FFE3E3",
+            mt: 3,
+            mb: 1
+          }}
+        >
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
+            <Box sx={{ color: "#FF385C", display: "flex" }}>
+              <Trash2 size={18} />
+            </Box>
+            <Typography sx={{ fontSize: "0.95rem", fontWeight: 800, color: "#D32F2F", fontFamily: "var(--font-sans)" }}>
+              Danger Zone
+            </Typography>
+          </Box>
+          <Typography variant="body2" sx={{ color: "#6A6A6A", mb: 2, fontSize: "0.82rem" }}>
+            Once you delete this trip, there is no going back. This will permanently delete the itinerary, all planned activities, and revoke access for all active planners.
+          </Typography>
+          <Button
+            id="delete-trip-btn"
+            variant="contained"
+            color="error"
+            onClick={() => setDeleteDialogOpen(true)}
+            startIcon={<Trash2 size={15} />}
+            sx={{
+              borderRadius: "12px",
+              py: 1,
+              px: 3,
+              bgcolor: "#D32F2F",
+              color: "#FFFFFF",
+              fontWeight: 700,
+              fontSize: "0.8rem",
+              textTransform: "none",
+              boxShadow: "none",
+              "&:hover": {
+                bgcolor: "#B71C1C",
+                boxShadow: "none"
+              }
+            }}
+          >
+            Delete This Trip
+          </Button>
+        </Paper>
+      )}
+
+      {/* Deletion Confirmation Dialog */}
+      <Dialog
+        id="delete-trip-dialog"
+        open={deleteDialogOpen}
+        onClose={() => !isDeleting && setDeleteDialogOpen(false)}
+        aria-labelledby="delete-trip-dialog-title"
+        aria-describedby="delete-trip-dialog-description"
+        slotProps={{
+          paper: {
+            sx: {
+              borderRadius: "20px",
+              p: 1,
+              maxWidth: "440px"
+            }
+          }
+        }}
+      >
+        <DialogTitle id="delete-trip-dialog-title" sx={{ fontWeight: 800, fontSize: "1.1rem" }}>
+          Delete Trip?
+        </DialogTitle>
+        <DialogContent>
+          <DialogContentText id="delete-trip-dialog-description" sx={{ color: "#222222", fontSize: "0.88rem", lineHeight: 1.5 }}>
+            Are you sure you want to delete <strong>{trip.name}</strong>? This action is permanent and cannot be undone. All activities and active collaboration invites will be lost.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2, gap: 1 }}>
+          <Button 
+            onClick={() => setDeleteDialogOpen(false)} 
+            disabled={isDeleting}
+            sx={{ 
+              textTransform: "none", 
+              color: "#6A6A6A", 
+              fontWeight: 700,
+              fontSize: "0.82rem" 
+            }}
+          >
+            Cancel
+          </Button>
+          <Button 
+            onClick={handleDeleteConfirm} 
+            variant="contained"
+            disabled={isDeleting}
+            sx={{ 
+              textTransform: "none", 
+              bgcolor: "#D32F2F", 
+              "&:hover": { bgcolor: "#B71C1C" },
+              fontWeight: 700,
+              borderRadius: "12px",
+              fontSize: "0.82rem",
+              px: 2.5
+            }}
+          >
+            {isDeleting ? "Deleting..." : "Delete Permanently"}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

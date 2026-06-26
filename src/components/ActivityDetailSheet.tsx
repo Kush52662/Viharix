@@ -26,11 +26,22 @@ import {
   Trash2, 
   Edit, 
   Save, 
-  Clock3 
+  Clock3,
+  Star,
+  ChevronLeft,
+  ChevronRight,
+  ExternalLink
 } from "lucide-react";
+import { APIProvider, Map, AdvancedMarker, Pin, useMapsLibrary } from "@vis.gl/react-google-maps";
 import { Activity, ItineraryPlacement } from "../types";
 import { CATEGORY_COLORS } from "../lib/images";
 import RichTextEditor from "./RichTextEditor";
+
+const API_KEY =
+  process.env.GOOGLE_MAPS_PLATFORM_KEY ||
+  (import.meta as any).env?.VITE_GOOGLE_MAPS_PLATFORM_KEY ||
+  (globalThis as any).GOOGLE_MAPS_PLATFORM_KEY ||
+  "";
 
 interface ActivityDetailSheetProps {
   activity: Activity | null;
@@ -64,6 +75,7 @@ export default function ActivityDetailSheet({
   if (!activity) return null;
 
   const [isEditing, setIsEditing] = useState(false);
+  const [activeMediaIndex, setActiveMediaIndex] = useState(0);
   
   // Editing state variables
   const [editTitle, setEditTitle] = useState("");
@@ -74,6 +86,42 @@ export default function ActivityDetailSheet({
   const [editStartTime, setEditStartTime] = useState("");
   const [editNotes, setEditNotes] = useState("");
   const [saving, setSaving] = useState(false);
+
+  // Dynamic live Google Maps coordinates resolving for Map view
+  const mapsLib = useMapsLibrary("maps");
+  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
+
+  useEffect(() => {
+    if (!activity) {
+      setCoords(null);
+      return;
+    }
+
+    if (activity.latitude !== undefined && activity.longitude !== undefined) {
+      setCoords({ lat: activity.latitude, lng: activity.longitude });
+      return;
+    }
+
+    if (!mapsLib || !activity.location) {
+      setCoords(null);
+      return;
+    }
+
+    try {
+      const geocoder = new google.maps.Geocoder();
+      geocoder.geocode({ address: activity.location }, (results, status) => {
+        if (status === "OK" && results?.[0]?.geometry?.location) {
+          const loc = results[0].geometry.location;
+          setCoords({ lat: loc.lat(), lng: loc.lng() });
+        } else {
+          setCoords(null);
+        }
+      });
+    } catch (err) {
+      console.error("Geocoding failed for activity detail:", err);
+      setCoords(null);
+    }
+  }, [mapsLib, activity?.location, activity?.latitude, activity?.longitude]);
 
   // Sync state with selected activity
   useEffect(() => {
@@ -94,6 +142,7 @@ export default function ActivityDetailSheet({
       setEditStartTime(activity.startTime || "");
       setEditNotes(activity.notes || "");
       setIsEditing(false);
+      setActiveMediaIndex(0);
     }
   }, [activity, open]);
 
@@ -146,10 +195,11 @@ export default function ActivityDetailSheet({
   };
 
   return (
-    <Drawer
-      anchor="bottom"
-      open={open}
-      onClose={onClose}
+    <APIProvider apiKey={API_KEY} version="weekly">
+      <Drawer
+        anchor="bottom"
+        open={open}
+        onClose={onClose}
       slotProps={{
         paper: {
           id: "activity-detail-sheet",
@@ -167,16 +217,114 @@ export default function ActivityDetailSheet({
       }}
     >
       {/* Visual Header Banner */}
-      <Box sx={{ position: "relative", height: 180, flexShrink: 0 }}>
-        <img
-          src={activity.imageURL}
-          alt={activity.title}
-          style={{ width: "100%", height: "100%", objectFit: "cover" }}
-          referrerPolicy="no-referrer"
-          onError={(e) => {
-            e.currentTarget.src = `https://picsum.photos/seed/${activity.id || 'activity'}/600/400`;
-          }}
-        />
+      <Box sx={{ position: "relative", height: 220, flexShrink: 0, bgcolor: "#111827", overflow: "hidden" }}>
+        {/* If activity has media and it has elements, render a Carousel with indicators and controls, else fall back to imageURL */}
+        {activity.media && activity.media.length > 0 ? (
+          <Box sx={{ width: "100%", height: "100%", position: "relative" }}>
+            <img
+              src={activity.media[activeMediaIndex]}
+              alt={`${activity.title} ${activeMediaIndex + 1}`}
+              style={{ width: "100%", height: "100%", objectFit: "cover", transition: "opacity 0.3s ease-in-out" }}
+              referrerPolicy="no-referrer"
+              onError={(e) => {
+                e.currentTarget.src = `https://picsum.photos/seed/${activity.id || 'activity'}-${activeMediaIndex}/600/400`;
+              }}
+            />
+
+            {/* Carousel navigation controls */}
+            {activity.media.length > 1 && (
+              <>
+                <IconButton
+                  size="small"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setActiveMediaIndex((prev) => (prev === 0 ? activity.media!.length - 1 : prev - 1));
+                  }}
+                  sx={{
+                    position: "absolute",
+                    top: "50%",
+                    left: 12,
+                    transform: "translateY(-50%)",
+                    bgcolor: "rgba(255,255,255,0.7)",
+                    color: "#222222",
+                    "&:hover": { bgcolor: "rgba(255,255,255,0.9)" },
+                    width: 32,
+                    height: 32,
+                    boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+                  }}
+                >
+                  <ChevronLeft size={18} />
+                </IconButton>
+
+                <IconButton
+                  size="small"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setActiveMediaIndex((prev) => (prev === activity.media!.length - 1 ? 0 : prev + 1));
+                  }}
+                  sx={{
+                    position: "absolute",
+                    top: "50%",
+                    right: 12,
+                    transform: "translateY(-50%)",
+                    bgcolor: "rgba(255,255,255,0.7)",
+                    color: "#222222",
+                    "&:hover": { bgcolor: "rgba(255,255,255,0.9)" },
+                    width: 32,
+                    height: 32,
+                    boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+                  }}
+                >
+                  <ChevronRight size={18} />
+                </IconButton>
+
+                {/* Dot indicators */}
+                <Box
+                  sx={{
+                    position: "absolute",
+                    bottom: 12,
+                    left: "50%",
+                    transform: "translateX(-50%)",
+                    display: "flex",
+                    gap: 0.8,
+                    bgcolor: "rgba(0,0,0,0.3)",
+                    px: 1.2,
+                    py: 0.6,
+                    borderRadius: "99px",
+                  }}
+                >
+                  {activity.media.map((_, idx) => (
+                    <Box
+                      key={idx}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setActiveMediaIndex(idx);
+                      }}
+                      sx={{
+                        width: 6,
+                        height: 6,
+                        borderRadius: "50%",
+                        bgcolor: idx === activeMediaIndex ? "#FFFFFF" : "rgba(255,255,255,0.5)",
+                        cursor: "pointer",
+                        transition: "all 0.2s",
+                      }}
+                    />
+                  ))}
+                </Box>
+              </>
+            )}
+          </Box>
+        ) : (
+          <img
+            src={activity.imageURL}
+            alt={activity.title}
+            style={{ width: "100%", height: "100%", objectFit: "cover" }}
+            referrerPolicy="no-referrer"
+            onError={(e) => {
+              e.currentTarget.src = `https://picsum.photos/seed/${activity.id || 'activity'}/600/400`;
+            }}
+          />
+        )}
         <Box
           sx={{
             position: "absolute",
@@ -184,7 +332,8 @@ export default function ActivityDetailSheet({
             left: 0,
             right: 0,
             bottom: 0,
-            background: "linear-gradient(to bottom, rgba(0,0,0,0.5) 0%, rgba(0,0,0,0) 50%, rgba(0,0,0,0.7) 100%)",
+            background: "linear-gradient(to bottom, rgba(0,0,0,0.4) 0%, rgba(0,0,0,0) 50%, rgba(0,0,0,0.6) 100%)",
+            pointerEvents: "none",
           }}
         />
 
@@ -356,20 +505,32 @@ export default function ActivityDetailSheet({
                   {activity.title}
                 </Typography>
 
+                {activity.rating && (
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, mt: 0.8, mb: 0.5 }}>
+                    <Star size={16} fill="#FFB238" color="#FFB238" />
+                    <Typography sx={{ fontSize: "14px", fontWeight: "bold", color: "#1F2937" }}>
+                      {activity.rating}
+                    </Typography>
+                    <Typography sx={{ fontSize: "12px", color: "#6B7280" }}>
+                      on Google Maps
+                    </Typography>
+                  </Box>
+                )}
+
                 <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mt: 1, flexWrap: "wrap" }}>
                   {/* Creator and profile section */}
                   <Chip
                     id="detail-source-badge"
                     avatar={
                       activity.createdByPhotoURL ? (
-                        <Avatar src={activity.createdByPhotoURL} />
+                        <Avatar src={activity.createdByPhotoURL} {...({ referrerPolicy: "no-referrer" } as any)} />
                       ) : (
                         <Avatar sx={{ bgcolor: "primary.main", color: "#FFFFFF" }}>
                           {activity.createdBy ? activity.createdBy[0].toUpperCase() : "U"}
                         </Avatar>
                       )
                     }
-                    label={activity.source === "AI Search" ? "AI Recommendation" : `By ${activity.createdBy || "Collaborator"}`}
+                    label={activity.source === "AI Search" ? "Recommended Idea" : `By ${activity.createdBy || "Collaborator"}`}
                     size="small"
                     variant="outlined"
                     sx={{ borderColor: "rgba(15, 118, 110, 0.3)", bgcolor: "rgba(15, 118, 110, 0.03)" }}
@@ -389,7 +550,7 @@ export default function ActivityDetailSheet({
                 </Box>
               </Box>
 
-              {!isReadOnly && onUpdateActivity && (
+              {!isReadOnly && !activity.id.startsWith("preview-") && onUpdateActivity && (
                 <IconButton
                   id="detail-edit-toggle-btn"
                   onClick={() => setIsEditing(true)}
@@ -409,11 +570,38 @@ export default function ActivityDetailSheet({
               {activity.location && (
                 <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}>
                   <MapPin size={18} style={{ color: "#FF385C" }} className="mt-0.5" />
-                  <Box>
+                  <Box sx={{ width: "100%" }}>
                     <Typography variant="caption" color="text.secondary">LOCATION</Typography>
                     <Typography id="detail-location" variant="body2" color="text.primary" sx={{ fontWeight: "medium" }}>
                       {activity.location}
                     </Typography>
+                    <Box sx={{ mt: 1, display: "flex", gap: 1 }}>
+                      <a
+                        href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(activity.title + " " + activity.location)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#F7F7F7] hover:bg-[#EBEBEB] text-[#FF385C] border border-[#EBEBEB] text-xs font-bold cursor-pointer transition-all active:scale-95"
+                      >
+                        <ExternalLink size={12} />
+                        <span>Open in Google Maps</span>
+                      </a>
+                    </Box>
+
+                    {/* Mini Dynamic Google Map of the Activity location */}
+                    {coords && (
+                      <Box sx={{ width: "100%", height: 160, mt: 1.5, borderRadius: 2, overflow: "hidden", border: "1px solid #EBEBEB" }}>
+                        <Map
+                          defaultCenter={coords}
+                          defaultZoom={15}
+                          gestureHandling="cooperative"
+                          disableDefaultUI
+                        >
+                          <AdvancedMarker position={coords}>
+                            <Pin background="#FF385C" glyphColor="#FFFFFF" borderColor="#FFFFFF" />
+                          </AdvancedMarker>
+                        </Map>
+                      </Box>
+                    )}
                   </Box>
                 </Box>
               )}
@@ -435,7 +623,7 @@ export default function ActivityDetailSheet({
                       <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, mt: 0.5 }}>
                         <Typography variant="caption" color="text.secondary">Scheduled by:</Typography>
                         {placement.addedByPhotoURL ? (
-                          <Avatar src={placement.addedByPhotoURL} sx={{ width: 16, height: 16 }} />
+                          <Avatar src={placement.addedByPhotoURL} {...({ referrerPolicy: "no-referrer" } as any)} sx={{ width: 16, height: 16 }} />
                         ) : null}
                         <Typography variant="caption" color="text.primary" sx={{ fontWeight: "medium" }}>
                           {placement.addedBy}
@@ -513,20 +701,22 @@ export default function ActivityDetailSheet({
                   </Button>
                 )}
 
-                <Button
-                  id="detail-archive-btn"
-                  variant="text"
-                  color="error"
-                  size="small"
-                  startIcon={<Trash2 size={16} />}
-                  onClick={() => {
-                    onArchiveActivity(activity);
-                    onClose();
-                  }}
-                  sx={{ alignSelf: "center", mt: 0.5 }}
-                >
-                  Archive & Remove Idea
-                </Button>
+                {!activity.id.startsWith("preview-") && (
+                  <Button
+                    id="detail-archive-btn"
+                    variant="text"
+                    color="error"
+                    size="small"
+                    startIcon={<Trash2 size={16} />}
+                    onClick={() => {
+                      onArchiveActivity(activity);
+                      onClose();
+                    }}
+                    sx={{ alignSelf: "center", mt: 0.5 }}
+                  >
+                    Archive & Remove Idea
+                  </Button>
+                )}
               </Box>
             ) : (
               <Box sx={{ textAlign: "center", bgcolor: "rgba(0,0,0,0.03)", py: 1.5, px: 2, borderRadius: 3 }}>
@@ -539,5 +729,6 @@ export default function ActivityDetailSheet({
         )}
       </Box>
     </Drawer>
+  </APIProvider>
   );
 }

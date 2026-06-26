@@ -146,6 +146,7 @@ export default function ProfileDialog({
           <Box sx={{ position: "relative" }}>
             <Avatar
               src={photoURL || undefined}
+              {...({ referrerPolicy: "no-referrer" } as any)}
               sx={{
                 width: 96,
                 height: 96,

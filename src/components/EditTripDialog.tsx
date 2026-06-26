@@ -178,7 +178,7 @@ export const EditTripDialog: React.FC<EditTripDialogProps> = ({
           </Box>
 
           <TextField
-            label="Trip Vibe / AI Guidelines"
+            label="Trip Style & Preferences"
             variant="outlined"
             fullWidth
             multiline

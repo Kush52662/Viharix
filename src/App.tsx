@@ -49,6 +49,7 @@ import {
   Trash2,
   LayoutGrid,
   LayoutList,
+  Map,
   Compass,
   Clock,
   Clock3,
@@ -56,10 +57,13 @@ import {
   Settings,
   Users,
   Share2,
+  Star,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 
 // Firebase
-import { onAuthStateChanged, signOut } from "firebase/auth";
+import { onAuthStateChanged, signOut, updateProfile } from "firebase/auth";
 import {
   doc,
   collection,
@@ -68,6 +72,8 @@ import {
   deleteDoc,
   updateDoc,
   getDocs,
+  arrayUnion,
+  arrayRemove,
 } from "firebase/firestore";
 import { auth, db, handleFirestoreError, OperationType } from "./lib/firebase";
 
@@ -83,6 +89,9 @@ import ManageTripTab from "./components/ManageTripTab";
 import { EditTripDialog } from "./components/EditTripDialog";
 import ShareTripDialog from "./components/ShareTripDialog";
 import SparksSelector from "./components/SparksSelector";
+import ItineraryMap from "./components/ItineraryMap";
+import ActivitiesMap from "./components/ActivitiesMap";
+import TravelAssistantChat from "./components/TravelAssistantChat";
 
 // Theme and helpers
 import theme from "./lib/theme";
@@ -95,6 +104,25 @@ export default function App() {
   const [loadingTrip, setLoadingTrip] = useState(false);
   const [currentUser, setCurrentUser] = useState<any>(null);
 
+  // Local Wishlist / Favorites Persistence (Guest + Sync fallback)
+  const [localLikedIds, setLocalLikedIds] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem("liked_activities");
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  // Sync local wishlist with localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem("liked_activities", JSON.stringify(localLikedIds));
+    } catch (e) {
+      console.warn("Could not save liked activities to localStorage:", e);
+    }
+  }, [localLikedIds]);
+
   // Firestore Collections State
   const [activities, setActivities] = useState<Activity[]>([]);
   const [placements, setPlacements] = useState<ItineraryPlacement[]>([]);
@@ -103,10 +131,15 @@ export default function App() {
   // Local/UI configuration states
   const [currentTab, setCurrentTab] = useState<"itinerary" | "activities" | "profile" | "my-trips">("my-trips");
   const [selectedDay, setSelectedDay] = useState<string>("Day 1");
-  const [viewMode, setViewMode] = useState<"gallery" | "list">("gallery");
+  const [viewMode, setViewMode] = useState<"gallery" | "list" | "map">("gallery");
   const [searchQuery, setSearchQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("All");
   const [sourceFilter, setSourceFilter] = useState("All");
+
+  // Google Maps and layout toggle states
+  const [rightPanelTab, setRightPanelTab] = useState<"ideas" | "map">("map");
+  const [mobileItineraryMode, setMobileItineraryMode] = useState<"list" | "map">("list");
+  const [assistantOpen, setAssistantOpen] = useState(false);
 
   // Bottom Sheets / Dialogs Control
   const [authModalOpen, setAuthModalOpen] = useState(false);
@@ -127,11 +160,75 @@ export default function App() {
 
   // --- 1. Monitor Authentication State ---
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setCurrentUser(user);
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        // Retrieve profile details with a fallback to providerData (especially for Google OAuth)
+        const photo = user.photoURL || user.providerData?.[0]?.photoURL || "";
+        const nameVal = user.displayName || user.providerData?.[0]?.displayName || "Traveler";
+        
+        // If the Firebase auth user object itself lacks a photoURL but the provider has it, update the profile
+        if (!user.photoURL && photo) {
+          try {
+            await updateProfile(user, { photoURL: photo });
+          } catch (e) {
+            console.warn("Failed to update profile photoURL during auto-sync:", e);
+          }
+        }
+
+        setCurrentUser({
+          ...user,
+          displayName: nameVal,
+          photoURL: photo,
+        });
+
+        // Automatically ensure user profile exists in Firestore 'users' collection with their Google account details
+        const userRef = doc(db, "users", user.uid);
+        try {
+          await setDoc(userRef, {
+            displayName: nameVal,
+            photoURL: photo,
+            email: user.email || user.providerData?.[0]?.email || "",
+            updatedAt: new Date().toISOString(),
+          }, { merge: true });
+        } catch (error) {
+          console.error("Error auto-saving user profile on auth state change:", error);
+        }
+      } else {
+        setCurrentUser(null);
+      }
     });
     return unsubscribe;
   }, []);
+
+  // --- Auto-scroll Selected Day Tab Into View ---
+  useEffect(() => {
+    if (!selectedDay) return;
+
+    // Use a small timeout to ensure the DOM layout and rendering are completed
+    const timer = setTimeout(() => {
+      // 1. Desktop Tab
+      const desktopEl = document.getElementById(`day-tab-desktop-${selectedDay}`);
+      if (desktopEl) {
+        desktopEl.scrollIntoView({
+          behavior: "smooth",
+          block: "nearest",
+          inline: "center",
+        });
+      }
+
+      // 2. Mobile Tab
+      const mobileEl = document.getElementById(`day-tab-mobile-${selectedDay}`);
+      if (mobileEl) {
+        mobileEl.scrollIntoView({
+          behavior: "smooth",
+          block: "nearest",
+          inline: "center",
+        });
+      }
+    }, 100);
+
+    return () => clearTimeout(timer);
+  }, [selectedDay]);
 
   // --- 2. Check and Load Trip from URL Hash or Cache ---
   useEffect(() => {
@@ -280,6 +377,31 @@ export default function App() {
     return Array.from({ length: calculatedDaysCount }, (_, i) => `Day ${i + 1}`);
   }, [calculatedDaysCount]);
 
+  const getTimePeriod = (timeStr: string) => {
+    if (!timeStr) return { label: "Flexible", icon: "✨", color: "#64748B" };
+    const parts = timeStr.split(":");
+    const hour = parseInt(parts[0], 10);
+    if (isNaN(hour)) return { label: "Flexible", icon: "✨", color: "#64748B" };
+    if (hour < 12) return { label: "Morning", icon: "🌅", color: "#0F766E" };
+    if (hour < 17) return { label: "Afternoon", icon: "☀️", color: "#F59E0B" };
+    if (hour < 21) return { label: "Evening", icon: "🌆", color: "#9333EA" };
+    return { label: "Night", icon: "🌙", color: "#1E1B4B" };
+  };
+
+  const getDayLabelAndDate = (dayIndex: number) => {
+    if (!trip?.startDate) return { label: `Day ${dayIndex + 1}`, dateStr: "" };
+    const parts = trip.startDate.split("-").map(Number);
+    if (parts.length !== 3 || parts.some(isNaN)) return { label: `Day ${dayIndex + 1}`, dateStr: "" };
+    const dateObj = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2] + dayIndex));
+    const weekday = dateObj.toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" });
+    const monthDay = dateObj.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+    return { label: `Day ${dayIndex + 1}`, dateStr: `${weekday}, ${monthDay}` };
+  };
+
+  const getActivitiesCountForDay = (dayName: string) => {
+    return placements.filter((p) => p.day === dayName).length;
+  };
+
   // Set default selected day if current choice is not in list
   useEffect(() => {
     if (daysList.length > 0 && !daysList.includes(selectedDay)) {
@@ -338,6 +460,21 @@ export default function App() {
     }
   };
 
+  const handleDeleteTrip = async () => {
+    if (!trip) return;
+    try {
+      await deleteDoc(doc(db, "trips", trip.id));
+      const recent = JSON.parse(localStorage.getItem("recent_trips") || "[]");
+      const updatedRecent = recent.filter((t: any) => t.id !== trip.id);
+      localStorage.setItem("recent_trips", JSON.stringify(updatedRecent));
+      setTrip(null);
+      setCurrentTab("itinerary");
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `trips/${trip.id}`);
+      throw error;
+    }
+  };
+
   const STANDARD_CATEGORIES = ["Food", "Sightseeing", "Transit", "Shopping", "Event", "Work", "Rest"];
 
   const handleAddManualActivity = async (data: Partial<Activity>) => {
@@ -364,12 +501,14 @@ export default function App() {
       tripId: trip.id,
       title: data.title!,
       category: data.category!,
-      imageURL: data.imageURL!,
+      imageURL: data.imageURL || "",
       location: data.location || "",
       notes: data.notes || "",
       estimatedDuration: data.estimatedDuration || "",
       startTime: data.startTime || "",
-      source: "Manual",
+      source: data.source || "Manual",
+      sourceDetail: data.sourceDetail || "",
+      rating: data.rating || "",
       createdBy: currentUser?.displayName || "Collaborator",
       createdByUserId: currentUser?.uid,
       createdByPhotoURL: currentUser?.photoURL || undefined,
@@ -379,6 +518,7 @@ export default function App() {
 
     try {
       await setDoc(doc(db, "trips", trip.id, "activities", actId), newAct);
+      return newAct;
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, `trips/${trip.id}/activities/${actId}`);
     }
@@ -408,6 +548,10 @@ export default function App() {
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `trips/${trip.id}/activities/${activityId}`);
     }
+  };
+
+  const handleUpdateActivityCoordinates = async (activityId: string, lat: number, lng: number) => {
+    await handleUpdateActivity(activityId, { latitude: lat, longitude: lng });
   };
 
   const handleUpdatePlacement = async (placementId: string, updatedFields: Partial<ItineraryPlacement>) => {
@@ -483,6 +627,33 @@ export default function App() {
     }
   };
 
+  const handleToggleLikeActivity = async (activity: Activity) => {
+    if (!trip) return;
+
+    // Toggle local state for instant responsive UI feedback
+    const isCurrentlyLikedLocally = localLikedIds.includes(activity.id);
+    if (isCurrentlyLikedLocally) {
+      setLocalLikedIds((prev) => prev.filter((id) => id !== activity.id));
+    } else {
+      setLocalLikedIds((prev) => [...prev, activity.id]);
+    }
+
+    // Synchronize to Firestore for authenticated users
+    if (currentUser) {
+      try {
+        const isCurrentlyLikedInDoc = activity.likes?.includes(currentUser.uid);
+        const actRef = doc(db, "trips", trip.id, "activities", activity.id);
+        await updateDoc(actRef, {
+          likes: isCurrentlyLikedInDoc
+            ? arrayRemove(currentUser.uid)
+            : arrayUnion(currentUser.uid)
+        });
+      } catch (error) {
+        console.error("Error syncing favorite/like state to Firestore:", error);
+      }
+    }
+  };
+
   const handleAddDay = async () => {
     if (!trip) return;
     const maxDayNum = daysList.reduce((max, dayStr) => {
@@ -529,23 +700,25 @@ export default function App() {
 
       for (const idea of newIdeas) {
         const activityId = Math.random().toString(36).substring(2, 15);
-        const imageUrl = `https://images.unsplash.com/photo-1501785888041-af3ef285b470?auto=format&fit=crop&w=800&q=80`; // custom
         const freshCatImage = getCategoryImage(idea.category, idea.title);
+        const finalImage = (idea.media && idea.media.length > 0) ? idea.media[0] : freshCatImage;
 
         const newActivity: Activity = {
           id: activityId,
           tripId: trip.id,
           title: idea.title,
           category: idea.category,
-          imageURL: freshCatImage,
+          imageURL: finalImage,
           location: idea.location || "",
           notes: idea.notes || "",
           estimatedDuration: idea.estimatedDuration || "",
           source: "AI Search",
           sourceDetail: "Fetched via 'Get More Ideas'",
-          createdBy: "AI Search Engine",
+          createdBy: "Travel Assistant",
           createdAt: new Date().toISOString(),
           status: "active",
+          rating: idea.rating || "",
+          media: idea.media || [freshCatImage],
         };
 
         try {
@@ -603,21 +776,24 @@ export default function App() {
       for (const idea of newIdeas) {
         const activityId = Math.random().toString(36).substring(2, 15);
         const freshCatImage = getCategoryImage(idea.category, idea.title);
+        const finalImage = (idea.media && idea.media.length > 0) ? idea.media[0] : freshCatImage;
 
         const newActivity: Activity = {
           id: activityId,
           tripId: trip.id,
           title: idea.title,
           category: idea.category,
-          imageURL: freshCatImage,
+          imageURL: finalImage,
           location: idea.location || trip.destination,
           notes: idea.notes || "",
           estimatedDuration: idea.estimatedDuration || "",
           source: "AI Search",
           sourceDetail: "Generated from interests: " + selectedSparks.join(", "),
-          createdBy: "AI Search Engine",
+          createdBy: "Travel Assistant",
           createdAt: new Date().toISOString(),
           status: "active",
+          rating: idea.rating || "",
+          media: idea.media || [freshCatImage],
         };
 
         try {
@@ -829,6 +1005,7 @@ export default function App() {
                   onClick={() => {
                     window.location.hash = "";
                     setTrip(null);
+                    setCurrentTab("itinerary");
                   }}
                   sx={{ 
                     p: "6px 12px", 
@@ -862,42 +1039,28 @@ export default function App() {
 
               {/* Toolbar Actions */}
               <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
-                {/* Share action */}
-                <Box sx={{ display: "flex", gap: 0.5 }}>
-                  <Button
-                    id="share-code-btn"
-                    variant="outlined"
-                    size="small"
-                    onClick={() => setShareTripDialogOpen(true)}
-                    sx={{ 
-                      display: { xs: "none", sm: "inline-flex" },
-                      borderRadius: "20px",
-                      borderColor: "#dddddd",
-                      color: "#222222",
-                      fontWeight: 600,
-                      "&:hover": { borderColor: "#222222", bgcolor: "#f7f7f7" }
-                    }}
-                    endIcon={<Users size={14} />}
-                  >
-                    Code: {trip.shareCode}
-                  </Button>
-                  <Button
-                    id="share-link-btn"
-                    variant="contained"
-                    size="small"
-                    onClick={() => setShareTripDialogOpen(true)}
-                    sx={{ 
-                      borderRadius: "20px",
-                      bgcolor: "#FF385C",
-                      color: "#FFFFFF",
-                      fontWeight: 600,
-                      "&:hover": { bgcolor: "#E00B41" }
-                    }}
-                    endIcon={<Share2 size={14} />}
-                  >
-                    Share
-                  </Button>
-                </Box>
+                <Button
+                  id="header-ask-gemini-btn"
+                  variant="contained"
+                  onClick={() => setAssistantOpen(true)}
+                  startIcon={<Sparkles size={16} className="text-white" />}
+                  sx={{
+                    borderRadius: "20px",
+                    textTransform: "none",
+                    fontWeight: 700,
+                    fontSize: { xs: "0.72rem", sm: "0.82rem" },
+                    p: { xs: "4px 10px", sm: "6px 14px" },
+                    background: "linear-gradient(135deg, #FF385C 0%, #FF5A5F 100%)",
+                    boxShadow: "0 3px 10px rgba(255, 56, 92, 0.2)",
+                    "&:hover": {
+                      background: "linear-gradient(135deg, #E0314F 0%, #E04D51 100%)",
+                      boxShadow: "0 4px 12px rgba(255, 56, 92, 0.3)"
+                    }
+                  }}
+                >
+                  <Box component="span" sx={{ display: { xs: "none", sm: "inline" } }}>Ask Assistant</Box>
+                  <Box component="span" sx={{ display: { xs: "inline", sm: "none" } }}>Assistant</Box>
+                </Button>
               </Box>
             </Box>
           </Box>
@@ -919,6 +1082,7 @@ export default function App() {
               onCopyCode={() => setShareTripDialogOpen(true)}
               copied={copied}
               onEditTrip={() => setEditTripDialogOpen(true)}
+              onDeleteTrip={handleDeleteTrip}
             />
           ) : (
             <>
@@ -928,39 +1092,100 @@ export default function App() {
             <Box sx={{ flex: 1, minWidth: 0 }}>
               <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
                 <Typography variant="h6" sx={{ color: "#222222", fontWeight: 700 }}>Trip Itinerary</Typography>
+                
+                {/* Multiplayer Presence Avatars Stack */}
+                {collaborators.length > 0 && (
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                    <Typography variant="caption" color="text.secondary" sx={{ mr: 1, fontWeight: 500 }}>
+                      Active now:
+                    </Typography>
+                    <Box sx={{ display: "flex", alignItems: "center", gap: -1, overflow: "visible" }}>
+                      {collaborators.map((c) => (
+                        <Tooltip key={c.userId} title={c.displayName || "Collaborator"}>
+                          <Avatar
+                            src={c.photoURL || undefined}
+                            {...({ referrerPolicy: "no-referrer" } as any)}
+                            sx={{
+                              width: 28,
+                              height: 28,
+                              border: "2px solid #FFFFFF",
+                              marginLeft: "-8px",
+                              boxShadow: "0 2px 4px rgba(0,0,0,0.08)",
+                              bgcolor: "primary.main",
+                              fontSize: "11px",
+                              fontWeight: "bold"
+                            }}
+                          >
+                            {c.displayName ? c.displayName[0].toUpperCase() : "U"}
+                          </Avatar>
+                        </Tooltip>
+                      ))}
+                    </Box>
+                  </Box>
+                )}
               </Box>
 
               {/* Horizontal Day Navigation */}
-              <Box sx={{ display: "flex", gap: 1, overflowX: "auto", pb: 1.5, mb: 3 }}>
-                {daysList.map((d) => (
-                  <Button
-                    id={`day-tab-desktop-${d}`}
-                    key={d}
-                    variant={selectedDay === d ? "contained" : "outlined"}
-                    color={selectedDay === d ? "primary" : "inherit"}
-                    onClick={() => setSelectedDay(d)}
-                    sx={{
-                      minWidth: 100,
-                      borderRadius: 3,
-                      flexShrink: 0,
-                      borderColor: selectedDay === d ? "primary.main" : "rgba(0,0,0,0.12)",
-                    }}
-                  >
-                    {d}
-                  </Button>
-                ))}
+              <Box sx={{ display: "flex", gap: 1, overflowX: "auto", pb: 1, mb: 2, "&::-webkit-scrollbar": { display: "none" } }}>
+                {daysList.map((d, idx) => {
+                  const isSelected = selectedDay === d;
+                  return (
+                    <Button
+                      id={`day-tab-desktop-${d}`}
+                      key={d}
+                      onClick={() => setSelectedDay(d)}
+                      sx={{
+                        minWidth: 80,
+                        height: 36,
+                        borderRadius: "20px",
+                        flexShrink: 0,
+                        px: 2.5,
+                        textTransform: "none",
+                        fontSize: "0.8rem",
+                        fontWeight: 700,
+                        bgcolor: isSelected ? "#FF385C" : "#F7F7F7",
+                        color: isSelected ? "#FFFFFF" : "#484848",
+                        border: "1px solid",
+                        borderColor: isSelected ? "#FF385C" : "#EBEBEB",
+                        transition: "all 0.15s ease",
+                        "&:hover": {
+                          bgcolor: isSelected ? "#E00B41" : "#EBEBEB",
+                          borderColor: isSelected ? "#E00B41" : "#DDDDDD",
+                        }
+                      }}
+                    >
+                      {d}
+                    </Button>
+                  );
+                })}
+              </Box>
+
+              {/* Short Day Description right below tabs */}
+              <Box sx={{ mb: 3, pl: 0.5 }}>
+                <Typography sx={{ fontFamily: "var(--font-sans)", fontWeight: 800, fontSize: "1.05rem", color: "#222222", lineHeight: 1.2 }}>
+                  {getDayLabelAndDate(daysList.indexOf(selectedDay)).dateStr || "Flexible Schedule"}
+                </Typography>
+                {currentDayPlacements.length > 0 ? (
+                  <Typography variant="caption" sx={{ color: "#717171", fontWeight: 500 }}>
+                    {currentDayPlacements.length} {currentDayPlacements.length === 1 ? "activity" : "activities"} scheduled
+                  </Typography>
+                ) : (
+                  <Typography variant="caption" sx={{ color: "#717171", fontWeight: 500 }}>
+                    No activities scheduled for this day
+                  </Typography>
+                )}
               </Box>
 
               {/* Timeline list */}
-              <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+              <Box sx={{ display: "flex", flexDirection: "column", gap: 2.5 }}>
                 {currentDayPlacements.length === 0 ? (
                   <Paper sx={{ p: 4, textAlign: "center", border: "1px dashed rgba(0,0,0,0.12)", bgcolor: "transparent" }}>
                     <Typography variant="body2" color="text.secondary">
-                      No activities scheduled for this day yet.
+                      No activities scheduled yet.
                     </Typography>
                     {!isReadOnly && (
                       <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
-                        Drag/Schedule an activity from the Idea Pool on the right!
+                        Add activities from your Idea Pool!
                       </Typography>
                     )}
                   </Paper>
@@ -969,126 +1194,220 @@ export default function App() {
                     const act = activities.find((a) => a.id === p.activityId);
                     if (!act) return null;
                     const colors = CATEGORY_COLORS[act.category] || CATEGORY_COLORS.Custom;
+                    const nextPlacement = currentDayPlacements[index + 1];
+                    const nextAct = nextPlacement ? activities.find((a) => a.id === nextPlacement.activityId) : null;
+                    const currentPeriod = getTimePeriod(p.startTime);
+                    const showPeriodHeader = index === 0 || getTimePeriod(p.startTime).label !== getTimePeriod(currentDayPlacements[index - 1].startTime).label;
 
                     return (
-                      <Card
-                        id={`itinerary-card-${p.id}`}
-                        key={p.id}
-                        sx={{
-                          display: "flex",
-                          position: "relative",
-                          "&:hover": { borderColor: "primary.main" },
-                        }}
-                      >
-                        {/* Start time Left column */}
-                        <Box sx={{ width: 80, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", bgcolor: "#F7F7F7", borderRight: "1px solid #EBEBEB", px: 1 }}>
-                          <Typography variant="subtitle1" sx={{ color: "#FF385C", fontWeight: 700 }}>{p.startTime}</Typography>
-                          {p.endTime && <Typography variant="caption" color="text.secondary">{p.endTime}</Typography>}
-                        </Box>
+                      <Box key={p.id}>
+                        {/* Period Header */}
+                        {showPeriodHeader && (
+                          <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: index > 0 ? 4 : 1, mb: 2 }}>
+                            <Typography sx={{ fontSize: "1.2rem" }}>{currentPeriod.icon}</Typography>
+                            <Typography sx={{ fontFamily: "var(--font-sans)", fontWeight: 800, fontSize: "0.8rem", color: currentPeriod.color, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                              {currentPeriod.label}
+                            </Typography>
+                            <Box sx={{ flexGrow: 1, height: "1px", bgcolor: "#E2E8F0", ml: 1 }} />
+                          </Box>
+                        )}
 
-                        <CardMedia
-                          component="img"
-                          sx={{ width: 100, display: { xs: "none", sm: "block" } }}
-                          image={act.imageURL}
-                          alt={act.title}
-                          {...({ 
-                            referrerPolicy: "no-referrer",
-                            onError: (e: React.SyntheticEvent<HTMLImageElement, Event>) => {
-                              e.currentTarget.src = `https://picsum.photos/seed/${act.id || 'activity'}/300/200`;
-                            }
-                          } as any)}
-                        />
-
-                        <Box sx={{ display: "flex", flexDirection: "column", flexGrow: 1, p: 2 }}>
-                          <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 1 }}>
-                            <Box>
-                              <Chip label={act.category} size="small" sx={{ bgcolor: colors.bg, color: colors.text, fontWeight: "bold", mb: 0.5, fontSize: "0.7rem" }} />
-                              <Typography
-                                variant="subtitle1"
-                                onClick={() => {
-                                  setSelectedActivity(act);
-                                  setDetailSheetOpen(true);
-                                }}
-                                sx={{ fontWeight: "bold", cursor: "pointer", "&:hover": { color: "primary.main", textDecoration: "underline" } }}
-                              >
-                                {act.title}
+                        <Box sx={{ display: "flex", position: "relative", gap: 3 }}>
+                          {/* Left Rail */}
+                          <Box sx={{ width: 40, display: "flex", flexDirection: "column", alignItems: "center", position: "relative", flexShrink: 0 }}>
+                            {index > 0 && (
+                              <Box sx={{ width: "2px", bgcolor: "#E2E8F0", flexGrow: 1, position: "absolute", top: 0, bottom: "50%", left: "50%", transform: "translateX(-50%)" }} />
+                            )}
+                            {index < currentDayPlacements.length - 1 && (
+                              <Box sx={{ width: "2px", bgcolor: "#E2E8F0", flexGrow: 1, position: "absolute", top: "50%", bottom: 0, left: "50%", transform: "translateX(-50%)" }} />
+                            )}
+                            <Box
+                              sx={{
+                                width: 32,
+                                height: 32,
+                                borderRadius: "50%",
+                                bgcolor: colors.bg,
+                                border: "2px solid",
+                                borderColor: colors.primary,
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                zIndex: 2,
+                                boxShadow: "0 2px 8px rgba(0,0,0,0.05)",
+                                transition: "all 0.2s ease",
+                              }}
+                            >
+                              <Typography sx={{ fontSize: "12px", fontWeight: "bold", color: colors.text }}>
+                                {index + 1}
                               </Typography>
                             </Box>
-
-                            {/* Reordering Controls */}
-                            {!isReadOnly && (
-                              <Box sx={{ display: "flex", gap: 0.5 }}>
-                                <IconButton
-                                  id={`move-up-btn-${p.id}`}
-                                  size="small"
-                                  onClick={() => handleMoveOrder(p, "up")}
-                                  disabled={index === 0}
-                                >
-                                  <ArrowUp size={16} />
-                                </IconButton>
-                                <IconButton
-                                  id={`move-down-btn-${p.id}`}
-                                  size="small"
-                                  onClick={() => handleMoveOrder(p, "down")}
-                                  disabled={index === currentDayPlacements.length - 1}
-                                >
-                                  <ArrowDown size={16} />
-                                </IconButton>
-                                <IconButton
-                                  id={`unschedule-btn-${p.id}`}
-                                  size="small"
-                                  color="error"
-                                  onClick={() => handleUnscheduleActivity(p)}
-                                >
-                                  <Trash2 size={16} />
-                                </IconButton>
-                              </Box>
-                            )}
-                          </Box>
-
-                          <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap", mt: 0.5 }}>
-                            {act.location && (
-                              <Typography variant="body2" color="text.secondary" sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-                                <MapPin size={12} style={{ color: "#6A6A6A" }} />
-                                <span>{act.location}</span>
-                              </Typography>
-                            )}
-                            {act.estimatedDuration && (
-                              <Typography variant="body2" color="text.secondary" sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-                                <Clock size={12} style={{ color: "#6A6A6A" }} />
-                                <span>{act.estimatedDuration}</span>
-                              </Typography>
-                            )}
-                            {act.startTime && (
-                              <Typography variant="body2" color="text.secondary" sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-                                <Clock3 size={12} style={{ color: "#6A6A6A" }} />
-                                <span>Starts: {act.startTime}</span>
-                              </Typography>
-                            )}
-                          </Box>
-
-                          <Box sx={{ display: "flex", alignItems: "center", gap: 0.8, mt: 1.5 }}>
-                            {p.addedByPhotoURL ? (
-                              <Avatar src={p.addedByPhotoURL} sx={{ width: 18, height: 18 }} />
-                            ) : (
-                              <Avatar sx={{ width: 18, height: 18, bgcolor: "primary.main", fontSize: "0.6rem", fontWeight: "bold" }}>
-                                {p.addedBy ? p.addedBy[0].toUpperCase() : "C"}
-                              </Avatar>
-                            )}
-                            <Typography variant="caption" color="text.secondary">
-                              Scheduled by {p.addedBy || "Collaborator"}
+                            <Typography sx={{ fontSize: "0.75rem", fontWeight: 700, color: "#475569", mt: 1 }}>
+                              {p.startTime}
                             </Typography>
                           </Box>
+
+                          {/* Card Content */}
+                          <Card
+                            id={`itinerary-card-${p.id}`}
+                            sx={{
+                              flexGrow: 1,
+                              display: "flex",
+                              borderRadius: "16px",
+                              border: "1px solid #EBEBEB",
+                              boxShadow: "0 2px 12px rgba(0,0,0,0.02)",
+                              transition: "all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1)",
+                              "&:hover": {
+                                transform: "translateY(-2px)",
+                                boxShadow: "0 8px 24px rgba(0,0,0,0.06)",
+                                borderColor: colors.primary,
+                              }
+                            }}
+                          >
+                            <CardMedia
+                              component="img"
+                              sx={{ width: 120, height: "auto", minHeight: 120, objectFit: "cover", display: { xs: "none", sm: "block" } }}
+                              image={act.imageURL}
+                              alt={act.title}
+                              {...({ 
+                                referrerPolicy: "no-referrer",
+                                onError: (e: React.SyntheticEvent<HTMLImageElement, Event>) => {
+                                  e.currentTarget.src = `https://picsum.photos/seed/${act.id || 'activity'}/300/200`;
+                                }
+                              } as any)}
+                            />
+
+                            <Box sx={{ display: "flex", flexDirection: "column", flexGrow: 1, p: 2 }}>
+                              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 1 }}>
+                                <Box>
+                                  <Box sx={{ display: "flex", gap: 0.5, alignItems: "center", mb: 0.5 }}>
+                                    <Chip label={act.category} size="small" sx={{ bgcolor: colors.bg, color: colors.text, fontWeight: "bold", fontSize: "0.65rem", height: 18 }} />
+                                    {p.endTime && (
+                                      <Chip label={`Until ${p.endTime}`} size="small" variant="outlined" sx={{ fontSize: "0.65rem", height: 18 }} />
+                                    )}
+                                  </Box>
+                                  <Typography
+                                    variant="subtitle1"
+                                    onClick={() => {
+                                      setSelectedActivity(act);
+                                      setDetailSheetOpen(true);
+                                    }}
+                                    sx={{ fontWeight: "bold", cursor: "pointer", color: "#1E293B", "&:hover": { color: "primary.main", textDecoration: "underline" } }}
+                                  >
+                                    {act.title}
+                                  </Typography>
+                                </Box>
+
+                                {/* Reordering Controls */}
+                                {!isReadOnly && (
+                                  <Box sx={{ display: "flex", gap: 0.5 }}>
+                                    <IconButton
+                                      id={`move-up-btn-${p.id}`}
+                                      size="small"
+                                      onClick={() => handleMoveOrder(p, "up")}
+                                      disabled={index === 0}
+                                    >
+                                      <ArrowUp size={16} />
+                                    </IconButton>
+                                    <IconButton
+                                      id={`move-down-btn-${p.id}`}
+                                      size="small"
+                                      onClick={() => handleMoveOrder(p, "down")}
+                                      disabled={index === currentDayPlacements.length - 1}
+                                    >
+                                      <ArrowDown size={16} />
+                                    </IconButton>
+                                    <IconButton
+                                      id={`unschedule-btn-${p.id}`}
+                                      size="small"
+                                      color="error"
+                                      onClick={() => handleUnscheduleActivity(p)}
+                                    >
+                                      <Trash2 size={16} />
+                                    </IconButton>
+                                  </Box>
+                                )}
+                              </Box>
+
+                              <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap", mt: 1 }}>
+                                {act.location && (
+                                  <Typography variant="body2" color="text.secondary" sx={{ display: "flex", alignItems: "center", gap: 0.5, fontSize: "0.8rem" }}>
+                                    <MapPin size={13} style={{ color: "#64748B" }} />
+                                    <span>{act.location}</span>
+                                  </Typography>
+                                )}
+                                {act.estimatedDuration && (
+                                  <Typography variant="body2" color="text.secondary" sx={{ display: "flex", alignItems: "center", gap: 0.5, fontSize: "0.8rem" }}>
+                                    <Clock size={13} style={{ color: "#64748B" }} />
+                                    <span>{act.estimatedDuration}</span>
+                                  </Typography>
+                                )}
+                              </Box>
+
+                              {act.notes && (
+                                <Typography
+                                  variant="body2"
+                                  color="text.secondary"
+                                  sx={{
+                                    mt: 1,
+                                    fontSize: "0.78rem",
+                                    fontStyle: "italic",
+                                    bgcolor: "#F8FAFC",
+                                    p: 1,
+                                    borderRadius: "8px",
+                                    borderLeft: `3px solid ${colors.primary}`,
+                                  }}
+                                >
+                                  {act.notes.replace(/<[^>]*>/g, "")}
+                                </Typography>
+                              )}
+
+                              <Box sx={{ display: "flex", alignItems: "center", gap: 0.8, mt: 1.5 }}>
+                                {p.addedByPhotoURL ? (
+                                  <Avatar src={p.addedByPhotoURL} {...({ referrerPolicy: "no-referrer" } as any)} sx={{ width: 18, height: 18 }} />
+                                ) : (
+                                  <Avatar sx={{ width: 18, height: 18, bgcolor: "primary.main", fontSize: "0.6rem", fontWeight: "bold" }}>
+                                    {p.addedBy ? p.addedBy[0].toUpperCase() : "C"}
+                                  </Avatar>
+                                )}
+                                <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.72rem" }}>
+                                  Added by {p.addedBy || "Collaborator"}
+                                </Typography>
+                              </Box>
+                            </Box>
+                          </Card>
                         </Box>
-                      </Card>
+
+                        {/* Transition Step Indicator */}
+                        {nextAct && act.location && nextAct.location && (
+                          <Box sx={{ display: "flex", gap: 3, ml: 2.5, my: 1.5 }}>
+                            <Box sx={{ width: 12, display: "flex", justifyContent: "center", position: "relative" }}>
+                              <Box sx={{ width: "2px", borderLeft: "2px dashed #CBD5E1", height: "100%" }} />
+                            </Box>
+                            <Box sx={{ display: "flex", alignItems: "center", gap: 1, py: 0.5, px: 1.5, bgcolor: "#F8FAFC", borderRadius: "20px", border: "1px solid #E2E8F0" }}>
+                              <Compass size={13} className="text-slate-500 stroke-[2.5]" />
+                              <Typography sx={{ fontSize: "0.72rem", color: "#64748B", fontWeight: 700 }}>
+                                Transit step: Move to {nextAct.title}
+                              </Typography>
+                            </Box>
+                          </Box>
+                        )}
+                      </Box>
                     );
                   })
                 )}
               </Box>
             </Box>
 
-            {/* Desktop Right: Activities/Ideas Pool Panel */}
-            <Box sx={{ width: 450, flexShrink: 0 }}>
+            {/* Desktop Right: Activities/Ideas Pool or Route Map Panel */}
+            <Box
+              sx={{
+                width: rightPanelTab === "map" && activities.length > 0 ? 580 : 450,
+                flexShrink: 0,
+                transition: "width 0.25s cubic-bezier(0.2, 0.8, 0.2, 1)",
+                display: "flex",
+                flexDirection: "column"
+              }}
+            >
               {activities.length === 0 ? (
                 <SparksSelector
                   trip={trip}
@@ -1097,8 +1416,63 @@ export default function App() {
                 />
               ) : (
                 <>
-                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
-                    <Typography variant="h6" color="primary" sx={{ fontWeight: "bold" }}>Activities Idea Pool</Typography>
+                  {/* Segment Tab Header */}
+                  <Box sx={{ display: "flex", gap: 1, mb: 3, borderBottom: "1px solid #EBEBEB", pb: 0.5, flexShrink: 0 }}>
+                    <Button
+                      id="tab-ideas-pool"
+                      onClick={() => setRightPanelTab("ideas")}
+                      sx={{
+                        color: rightPanelTab === "ideas" ? "#FF385C" : "#717171",
+                        fontWeight: 700,
+                        fontSize: "0.85rem",
+                        borderBottom: rightPanelTab === "ideas" ? "2px solid #FF385C" : "none",
+                        borderRadius: 0,
+                        pb: 1,
+                        px: 1.5,
+                        textTransform: "none",
+                        "&:hover": { bgcolor: "transparent", color: "#FF385C" },
+                      }}
+                    >
+                      💡 Idea Pool ({activities.length})
+                    </Button>
+                    <Button
+                      id="tab-route-map"
+                      onClick={() => setRightPanelTab("map")}
+                      sx={{
+                        color: rightPanelTab === "map" ? "#FF385C" : "#717171",
+                        fontWeight: 700,
+                        fontSize: "0.85rem",
+                        borderBottom: rightPanelTab === "map" ? "2px solid #FF385C" : "none",
+                        borderRadius: 0,
+                        pb: 1,
+                        px: 1.5,
+                        textTransform: "none",
+                        "&:hover": { bgcolor: "transparent", color: "#FF385C" },
+                      }}
+                    >
+                      🗺️ Route Map
+                    </Button>
+                  </Box>
+
+                  {rightPanelTab === "map" ? (
+                    <Box sx={{ flex: 1, minHeight: 480, display: "flex", flexDirection: "column" }}>
+                      <ItineraryMap
+                        trip={trip!}
+                        placements={placements}
+                        activities={activities}
+                        selectedDay={selectedDay}
+                        onUpdateActivityCoordinates={handleUpdateActivityCoordinates}
+                        onSelectActivity={(act) => {
+                          setSelectedActivity(act);
+                          setDetailSheetOpen(true);
+                        }}
+                        isReadOnly={isReadOnly}
+                      />
+                    </Box>
+                  ) : (
+                    <>
+                      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
+                        <Typography variant="h6" color="primary" sx={{ fontWeight: "bold" }}>Activities Idea Pool</Typography>
                 {!isReadOnly && (
                   <Button
                     id="add-activity-btn-desktop"
@@ -1173,7 +1547,7 @@ export default function App() {
                       onChange={(e) => setSourceFilter(e.target.value)}
                     >
                       <MenuItem value="All">All Sources</MenuItem>
-                      <MenuItem value="AI">AI Sourced</MenuItem>
+                      <MenuItem value="AI">Recommended</MenuItem>
                       <MenuItem value="Manual">Collaborator Added</MenuItem>
                     </Select>
                   </FormControl>
@@ -1197,6 +1571,14 @@ export default function App() {
                       onClick={() => setViewMode("list")}
                     >
                       <LayoutList size={18} />
+                    </IconButton>
+                    <IconButton
+                      id="view-map-btn-desktop"
+                      size="small"
+                      color={viewMode === "map" ? "primary" : "default"}
+                      onClick={() => setViewMode("map")}
+                    >
+                      <Map size={18} />
                     </IconButton>
                   </Box>
 
@@ -1224,15 +1606,34 @@ export default function App() {
               </Box>
 
               {/* Ideas Pool Render */}
-              <Box sx={{ 
-                display: viewMode === "gallery" ? "grid" : "flex", 
-                gridTemplateColumns: viewMode === "gallery" ? "repeat(2, minmax(0, 1fr))" : undefined,
-                flexDirection: viewMode === "gallery" ? undefined : "column",
-                gap: 2, 
-                maxHeight: "calc(100vh - 420px)", 
-                overflowY: "auto", 
-                pr: 0.5 
-              }}>
+              {viewMode === "map" ? (
+                <Box sx={{ height: "calc(100vh - 420px)", width: "100%", borderRadius: "24px", overflow: "hidden" }}>
+                  <ActivitiesMap
+                    trip={trip!}
+                    activities={filteredActivities}
+                    activityPlacementsMap={activityPlacementsMap}
+                    onUpdateActivityCoordinates={handleUpdateActivityCoordinates}
+                    onSelectActivity={(act) => {
+                      setSelectedActivity(act);
+                      setDetailSheetOpen(true);
+                    }}
+                    onToggleSchedule={(act) => {
+                      setSelectedActivity(act);
+                      setAddToItineraryOpen(true);
+                    }}
+                    isReadOnly={isReadOnly}
+                  />
+                </Box>
+              ) : (
+                <Box sx={{ 
+                  display: viewMode === "gallery" ? "grid" : "flex", 
+                  gridTemplateColumns: viewMode === "gallery" ? "repeat(2, minmax(0, 1fr))" : undefined,
+                  flexDirection: viewMode === "gallery" ? undefined : "column",
+                  gap: 2, 
+                  maxHeight: "calc(100vh - 420px)", 
+                  overflowY: "auto", 
+                  pr: 0.5 
+                }}>
                 {filteredActivities.length === 0 ? (
                   <Typography variant="body2" color="text.secondary" align="center" sx={{ py: 4 }}>
                     No activity ideas found matching the filters.
@@ -1313,16 +1714,16 @@ export default function App() {
                                   fontFamily: "var(--font-sans)",
                                 }}
                               >
-                                {act.source === "AI Search" ? "AI Search" : "Collaborator"}
+                                {act.source === "AI Search" ? "Recommended" : "Collaborator"}
                               </Typography>
                             </Box>
 
                             {/* Heart Wishlist icon at top-right */}
                             <IconButton
+                              id={`activity-heart-btn-${act.id}`}
                               onClick={(e) => {
                                 e.stopPropagation();
-                                setSelectedActivity(act);
-                                setAddToItineraryOpen(true);
+                                handleToggleLikeActivity(act);
                               }}
                               sx={{
                                 position: "absolute",
@@ -1339,8 +1740,8 @@ export default function App() {
                             >
                               <Heart
                                 size={16}
-                                fill={scheduled ? "#FF385C" : "none"}
-                                color={scheduled ? "#FF385C" : "#222222"}
+                                fill={(localLikedIds.includes(act.id) || (currentUser && act.likes?.includes(currentUser.uid))) ? "#FF385C" : "none"}
+                                color={(localLikedIds.includes(act.id) || (currentUser && act.likes?.includes(currentUser.uid))) ? "#FF385C" : "#222222"}
                                 style={{ transition: "all 0.2s ease-in-out" }}
                               />
                             </IconButton>
@@ -1383,6 +1784,15 @@ export default function App() {
                                 }}
                               />
                             </Box>
+
+                            {act.rating && (
+                              <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, mt: 0.5, mb: 0.2 }}>
+                                <Star size={13} fill="#FFB238" color="#FFB238" />
+                                <Typography sx={{ fontSize: "12px", fontWeight: "bold", color: "#1E293B" }}>
+                                  {act.rating}
+                                </Typography>
+                              </Box>
+                            )}
 
                             <Box sx={{ display: "flex", flexDirection: "column", gap: 0.2, mt: 0.5 }}>
                               {act.location && (
@@ -1442,7 +1852,7 @@ export default function App() {
                             <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mt: 1.5 }}>
                               <Box sx={{ display: "flex", alignItems: "center", gap: 0.6 }}>
                                 {act.createdByPhotoURL ? (
-                                  <Avatar src={act.createdByPhotoURL} sx={{ width: 18, height: 18 }} />
+                                  <Avatar src={act.createdByPhotoURL} {...({ referrerPolicy: "no-referrer" } as any)} sx={{ width: 18, height: 18 }} />
                                 ) : (
                                   <Avatar
                                     sx={{
@@ -1490,7 +1900,7 @@ export default function App() {
                                     transition: "all 0.15s ease-in-out",
                                   }}
                                 >
-                                  {scheduled ? "Scheduled" : "+ Schedule"}
+                                  {scheduled ? "Scheduled" : "+ Add"}
                                 </Button>
                               )}
                             </Box>
@@ -1532,8 +1942,15 @@ export default function App() {
                             </Typography>
                              <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap", alignItems: "center" }}>
                               <Chip label={act.category} size="small" sx={{ height: 16, fontSize: "0.6rem", bgcolor: colors.bg, color: colors.text, fontWeight: "bold" }} />
-                              <Chip label={act.source === "AI Search" ? "AI" : "Manual"} size="small" sx={{ height: 16, fontSize: "0.6rem" }} />
+                              <Chip label={act.source === "AI Search" ? "Recommended" : "Idea"} size="small" sx={{ height: 16, fontSize: "0.6rem" }} />
                               
+                              {act.rating && (
+                                <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.3, ml: 0.5, fontSize: "0.7rem", fontWeight: "bold", color: "#1E293B" }}>
+                                  <Star size={10} fill="#FFB238" color="#FFB238" />
+                                  <span>{act.rating}</span>
+                                </Box>
+                              )}
+
                               {act.location && (
                                 <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.3, ml: 0.5, color: "text.secondary", fontSize: "0.7rem" }}>
                                   <MapPin size={10} style={{ color: "#6A6A6A" }} />
@@ -1576,6 +1993,9 @@ export default function App() {
                   })
                 )}
               </Box>
+              )}
+                    </>
+                  )}
                 </>
               )}
             </Box>
@@ -1588,39 +2008,120 @@ export default function App() {
               <Box>
                 <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1.5 }}>
                   <Typography variant="subtitle1" color="primary" sx={{ fontWeight: "bold" }}>Trip Itinerary</Typography>
-                </Box>
-                {/* Mobile Day Selector Bar */}
-                <Box sx={{ display: "flex", gap: 1, overflowX: "auto", pb: 1.5, mb: 2 }}>
-                  {daysList.map((d) => (
-                    <Chip
-                      id={`day-tab-mobile-${d}`}
-                      key={d}
-                      label={d}
-                      clickable
-                      color={selectedDay === d ? "primary" : "default"}
-                      onClick={() => setSelectedDay(d)}
+                  <Box sx={{ display: "flex", border: "1px solid #E2E8F0", borderRadius: "20px", p: 0.3, bgcolor: "#F8FAFC" }}>
+                    <Button
+                      id="mobile-view-list-btn"
+                      size="small"
+                      onClick={() => setMobileItineraryMode("list")}
                       sx={{
-                        px: 1,
-                        fontSize: "0.85rem",
+                        fontSize: "0.65rem",
                         fontWeight: "bold",
-                        bgcolor: selectedDay === d ? "primary.main" : "background.paper",
-                        border: "1px solid rgba(0,0,0,0.06)",
+                        py: 0.3,
+                        px: 1.2,
+                        minWidth: 50,
+                        borderRadius: "15px",
+                        textTransform: "none",
+                        bgcolor: mobileItineraryMode === "list" ? "#FF385C" : "transparent",
+                        color: mobileItineraryMode === "list" ? "#FFFFFF" : "#475569",
+                        "&:hover": { bgcolor: mobileItineraryMode === "list" ? "#E00B41" : "transparent" },
                       }}
-                    />
-                  ))}
-                  {/* Plus button removed: days are strictly based on trip date settings */}
+                    >
+                      List
+                    </Button>
+                    <Button
+                      id="mobile-view-map-btn"
+                      size="small"
+                      onClick={() => setMobileItineraryMode("map")}
+                      sx={{
+                        fontSize: "0.65rem",
+                        fontWeight: "bold",
+                        py: 0.3,
+                        px: 1.2,
+                        minWidth: 50,
+                        borderRadius: "15px",
+                        textTransform: "none",
+                        bgcolor: mobileItineraryMode === "map" ? "#FF385C" : "transparent",
+                        color: mobileItineraryMode === "map" ? "#FFFFFF" : "#475569",
+                        "&:hover": { bgcolor: mobileItineraryMode === "map" ? "#E00B41" : "transparent" },
+                      }}
+                    >
+                      Map
+                    </Button>
+                  </Box>
+                </Box>
+                
+                {/* Mobile Day Selector Bar */}
+                <Box sx={{ display: "flex", gap: 1, overflowX: "auto", pb: 1, mb: 1.5, "&::-webkit-scrollbar": { display: "none" } }}>
+                  {daysList.map((d, idx) => {
+                    const isSelected = selectedDay === d;
+                    return (
+                      <Button
+                        id={`day-tab-mobile-${d}`}
+                        key={d}
+                        onClick={() => setSelectedDay(d)}
+                        sx={{
+                          borderRadius: "20px",
+                          px: 2.5,
+                          fontSize: "0.75rem",
+                          fontWeight: "bold",
+                          textTransform: "none",
+                          bgcolor: isSelected ? "#FF385C" : "#F7F7F7",
+                          color: isSelected ? "#FFFFFF" : "#484848",
+                          border: "1px solid",
+                          borderColor: isSelected ? "#FF385C" : "#E2E8F0",
+                          flexShrink: 0,
+                          minWidth: 80,
+                          height: 34,
+                        }}
+                      >
+                        {d}
+                      </Button>
+                    );
+                  })}
                 </Box>
 
-                {/* Timeline */}
-                <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
+                {/* Mobile Short Day Description right below tabs */}
+                <Box sx={{ mb: 2, px: 0.5 }}>
+                  <Typography sx={{ fontFamily: "var(--font-sans)", fontWeight: 800, fontSize: "0.95rem", color: "#222222", lineHeight: 1.2 }}>
+                    {getDayLabelAndDate(daysList.indexOf(selectedDay)).dateStr || "Flexible Schedule"}
+                  </Typography>
+                  {currentDayPlacements.length > 0 ? (
+                    <Typography variant="caption" sx={{ color: "#717171", fontWeight: 500 }}>
+                      {currentDayPlacements.length} {currentDayPlacements.length === 1 ? "activity" : "activities"} scheduled
+                    </Typography>
+                  ) : (
+                    <Typography variant="caption" sx={{ color: "#717171", fontWeight: 500 }}>
+                      No activities scheduled
+                    </Typography>
+                  )}
+                </Box>
+
+                {/* Mobile Map View or Timeline List */}
+                {mobileItineraryMode === "map" ? (
+                  <Box sx={{ height: "450px", width: "100%", mb: 3 }}>
+                    <ItineraryMap
+                      trip={trip!}
+                      placements={placements}
+                      activities={activities}
+                      selectedDay={selectedDay}
+                      onUpdateActivityCoordinates={handleUpdateActivityCoordinates}
+                      onSelectActivity={(act) => {
+                        setSelectedActivity(act);
+                        setDetailSheetOpen(true);
+                      }}
+                      isReadOnly={isReadOnly}
+                    />
+                  </Box>
+                ) : (
+                  <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
                   {currentDayPlacements.length === 0 ? (
                     <Paper sx={{ p: 4, textAlign: "center", border: "1px dashed rgba(0,0,0,0.12)", bgcolor: "transparent" }}>
                       <Typography variant="body2" color="text.secondary">
-                        No activities scheduled for this day yet.
+                        No activities scheduled yet.
                       </Typography>
                       {!isReadOnly && (
                         <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
-                          Switch to the Activities tab below to add travel ideas to your master schedule!
+                          Add ideas from the Activities tab below!
                         </Typography>
                       )}
                     </Paper>
@@ -1629,105 +2130,182 @@ export default function App() {
                       const act = activities.find((a) => a.id === p.activityId);
                       if (!act) return null;
                       const colors = CATEGORY_COLORS[act.category] || CATEGORY_COLORS.Custom;
+                      const nextPlacement = currentDayPlacements[index + 1];
+                      const nextAct = nextPlacement ? activities.find((a) => a.id === nextPlacement.activityId) : null;
+                      const currentPeriod = getTimePeriod(p.startTime);
+                      const showPeriodHeader = index === 0 || getTimePeriod(p.startTime).label !== getTimePeriod(currentDayPlacements[index - 1].startTime).label;
 
                       return (
-                        <Card
-                          id={`itinerary-card-mobile-${p.id}`}
-                          key={p.id}
-                          sx={{ display: "flex", position: "relative" }}
-                        >
-                          {/* Time */}
-                          <Box sx={{ width: 70, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", bgcolor: "rgba(15, 118, 110, 0.02)", borderRight: "1px solid rgba(0,0,0,0.04)" }}>
-                            <Typography variant="subtitle2" color="primary" sx={{ fontWeight: "bold" }}>{p.startTime}</Typography>
-                          </Box>
+                        <Box key={p.id}>
+                          {/* Period Header */}
+                          {showPeriodHeader && (
+                            <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: index > 0 ? 3 : 0.5, mb: 1.5 }}>
+                              <Typography sx={{ fontSize: "1rem" }}>{currentPeriod.icon}</Typography>
+                              <Typography sx={{ fontWeight: 800, fontSize: "0.7rem", color: currentPeriod.color, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                                {currentPeriod.label}
+                              </Typography>
+                              <Box sx={{ flexGrow: 1, height: "1px", bgcolor: "#E2E8F0" }} />
+                            </Box>
+                          )}
 
-                          <CardMedia
-                            component="img"
-                            sx={{ width: 80 }}
-                            image={act.imageURL}
-                            alt={act.title}
-                            {...({ 
-                              referrerPolicy: "no-referrer",
-                              onError: (e: React.SyntheticEvent<HTMLImageElement, Event>) => {
-                                e.currentTarget.src = `https://picsum.photos/seed/${act.id || 'activity'}/300/200`;
-                              }
-                            } as any)}
-                          />
-
-                          <Box sx={{ display: "flex", flexDirection: "column", flexGrow: 1, p: 1.5, minWidth: 0 }}>
-                            <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 0.5 }}>
-                              <Box sx={{ minWidth: 0 }}>
-                                <Typography
-                                  variant="subtitle2"
-                                  noWrap
-                                  onClick={() => {
-                                    setSelectedActivity(act);
-                                    setDetailSheetOpen(true);
-                                  }}
-                                  sx={{ fontWeight: "bold" }}
-                                >
-                                  {act.title}
+                          <Box sx={{ display: "flex", position: "relative", gap: 1.5 }}>
+                            {/* Mobile Left Rail */}
+                            <Box sx={{ width: 24, display: "flex", flexDirection: "column", alignItems: "center", position: "relative", flexShrink: 0 }}>
+                              {index > 0 && (
+                                <Box sx={{ width: "2px", bgcolor: "#E2E8F0", flexGrow: 1, position: "absolute", top: 0, bottom: "50%", left: "50%", transform: "translateX(-50%)" }} />
+                              )}
+                              {index < currentDayPlacements.length - 1 && (
+                                <Box sx={{ width: "2px", bgcolor: "#E2E8F0", flexGrow: 1, position: "absolute", top: "50%", bottom: 0, left: "50%", transform: "translateX(-50%)" }} />
+                              )}
+                              <Box
+                                sx={{
+                                  width: 20,
+                                  height: 20,
+                                  borderRadius: "50%",
+                                  bgcolor: colors.bg,
+                                  border: "2px solid",
+                                  borderColor: colors.primary,
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                  zIndex: 2,
+                                  boxShadow: "0 1px 4px rgba(0,0,0,0.05)",
+                                }}
+                              >
+                                <Typography sx={{ fontSize: "9px", fontWeight: "bold", color: colors.text }}>
+                                  {index + 1}
                                 </Typography>
-                                <Box sx={{ display: "flex", gap: 0.5, alignItems: "center", mb: 0.5 }}>
-                                  <Chip label={act.category} size="small" sx={{ height: 16, fontSize: "0.55rem", bgcolor: colors.bg, color: colors.text, fontWeight: "bold" }} />
-                                  {act.estimatedDuration && (
-                                    <Typography sx={{ fontSize: "0.6rem", display: "flex", alignItems: "center", gap: 0.2, color: "text.secondary" }}>
-                                      <Clock size={10} />
-                                      {act.estimatedDuration}
-                                    </Typography>
-                                  )}
-                                </Box>
-                                
-                                {act.location && (
-                                  <Typography sx={{ fontSize: "0.65rem", display: "flex", alignItems: "center", gap: 0.2, color: "text.secondary", mb: 0.5 }}>
-                                    <MapPin size={10} />
-                                    <span>{act.location}</span>
-                                  </Typography>
-                                )}
+                              </Box>
+                              <Typography sx={{ fontSize: "0.6rem", fontWeight: 700, color: "#475569", mt: 0.5 }}>
+                                {p.startTime}
+                              </Typography>
+                            </Box>
 
-                                <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, mt: 0.5 }}>
-                                  {p.addedByPhotoURL ? (
-                                    <Avatar src={p.addedByPhotoURL} sx={{ width: 14, height: 14 }} />
-                                  ) : (
-                                    <Avatar sx={{ width: 14, height: 14, bgcolor: "primary.main", fontSize: "0.5rem" }}>
-                                      {p.addedBy ? p.addedBy[0].toUpperCase() : "C"}
-                                    </Avatar>
+                            {/* Card Content */}
+                            <Card
+                              id={`itinerary-card-mobile-${p.id}`}
+                              sx={{
+                                flexGrow: 1,
+                                display: "flex",
+                                position: "relative",
+                                borderRadius: "12px",
+                                border: "1px solid #EBEBEB",
+                                boxShadow: "0 1px 6px rgba(0,0,0,0.01)"
+                              }}
+                            >
+                              <CardMedia
+                                component="img"
+                                sx={{ width: 75, objectFit: "cover" }}
+                                image={act.imageURL}
+                                alt={act.title}
+                                {...({ 
+                                  referrerPolicy: "no-referrer",
+                                  onError: (e: React.SyntheticEvent<HTMLImageElement, Event>) => {
+                                    e.currentTarget.src = `https://picsum.photos/seed/${act.id || 'activity'}/300/200`;
+                                  }
+                                } as any)}
+                              />
+
+                              <Box sx={{ display: "flex", flexDirection: "column", flexGrow: 1, p: 1.2, minWidth: 0 }}>
+                                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 0.5 }}>
+                                  <Box sx={{ minWidth: 0, flexGrow: 1 }}>
+                                    <Typography
+                                      variant="subtitle2"
+                                      noWrap
+                                      onClick={() => {
+                                        setSelectedActivity(act);
+                                        setDetailSheetOpen(true);
+                                      }}
+                                      sx={{ fontWeight: "bold", color: "#1E293B" }}
+                                    >
+                                      {act.title}
+                                    </Typography>
+                                    <Box sx={{ display: "flex", gap: 0.5, alignItems: "center", mb: 0.5, mt: 0.2 }}>
+                                      <Chip label={act.category} size="small" sx={{ height: 16, fontSize: "0.55rem", bgcolor: colors.bg, color: colors.text, fontWeight: "bold" }} />
+                                      {p.endTime && (
+                                        <Typography sx={{ fontSize: "0.6rem", color: "text.secondary" }}>
+                                          to {p.endTime}
+                                        </Typography>
+                                      )}
+                                    </Box>
+                                    
+                                    {act.location && (
+                                      <Typography sx={{ fontSize: "0.65rem", display: "flex", alignItems: "center", gap: 0.2, color: "text.secondary", mb: 0.5 }}>
+                                        <MapPin size={10} />
+                                        <span style={{ textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap" }}>{act.location}</span>
+                                      </Typography>
+                                    )}
+
+                                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, mt: 0.5 }}>
+                                      {p.addedByPhotoURL ? (
+                                        <Avatar src={p.addedByPhotoURL} {...({ referrerPolicy: "no-referrer" } as any)} sx={{ width: 14, height: 14 }} />
+                                      ) : (
+                                        <Avatar sx={{ width: 14, height: 14, bgcolor: "primary.main", fontSize: "0.5rem" }}>
+                                          {p.addedBy ? p.addedBy[0].toUpperCase() : "C"}
+                                        </Avatar>
+                                      )}
+                                      <Typography variant="caption" sx={{ fontSize: "0.6rem" }} color="text.secondary">
+                                        By {p.addedBy || "Collaborator"}
+                                      </Typography>
+                                    </Box>
+                                  </Box>
+
+                                  {!isReadOnly && (
+                                    <Box sx={{ display: "flex", flexDirection: "column", gap: 0.2, alignItems: "center" }}>
+                                      <IconButton
+                                        id={`move-up-mobile-btn-${p.id}`}
+                                        size="small"
+                                        onClick={() => handleMoveOrder(p, "up")}
+                                        disabled={index === 0}
+                                        sx={{ p: 0.2 }}
+                                      >
+                                        <ArrowUp size={14} />
+                                      </IconButton>
+                                      <IconButton
+                                        id={`move-down-mobile-btn-${p.id}`}
+                                        size="small"
+                                        onClick={() => handleMoveOrder(p, "down")}
+                                        disabled={index === currentDayPlacements.length - 1}
+                                        sx={{ p: 0.2 }}
+                                      >
+                                        <ArrowDown size={14} />
+                                      </IconButton>
+                                      <IconButton
+                                        id={`unschedule-mobile-btn-${p.id}`}
+                                        size="small"
+                                        color="error"
+                                        onClick={() => handleUnscheduleActivity(p)}
+                                        sx={{ p: 0.2 }}
+                                      >
+                                        <Trash2 size={14} />
+                                      </IconButton>
+                                    </Box>
                                   )}
-                                  <Typography variant="caption" sx={{ fontSize: "0.6rem" }} color="text.secondary">
-                                    By {p.addedBy || "Collaborator"}
-                                  </Typography>
                                 </Box>
                               </Box>
-
-                              {!isReadOnly && (
-                                <Box sx={{ display: "flex", gap: 0.5 }}>
-                                  <IconButton
-                                    id={`move-up-mobile-btn-${p.id}`}
-                                    size="small"
-                                    onClick={() => handleMoveOrder(p, "up")}
-                                    disabled={index === 0}
-                                    sx={{ p: 0.2 }}
-                                  >
-                                    <ArrowUp size={14} />
-                                  </IconButton>
-                                  <IconButton
-                                    id={`move-down-mobile-btn-${p.id}`}
-                                    size="small"
-                                    onClick={() => handleMoveOrder(p, "down")}
-                                    disabled={index === currentDayPlacements.length - 1}
-                                    sx={{ p: 0.2 }}
-                                  >
-                                    <ArrowDown size={14} />
-                                  </IconButton>
-                                </Box>
-                              )}
-                            </Box>
+                            </Card>
                           </Box>
-                        </Card>
+
+                          {/* Transit Step for Mobile */}
+                          {nextAct && act.location && nextAct.location && (
+                            <Box sx={{ display: "flex", gap: 1.5, ml: 1.5, my: 1 }}>
+                              <Box sx={{ width: 8, display: "flex", justifyContent: "center", position: "relative" }}>
+                                <Box sx={{ width: "2px", borderLeft: "2px dashed #CBD5E1", height: "100%" }} />
+                              </Box>
+                              <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, py: 0.3, px: 1, bgcolor: "#F8FAFC", borderRadius: "12px", border: "1px solid #E2E8F0" }}>
+                                <Compass size={11} className="text-slate-500" />
+                                <Typography sx={{ fontSize: "0.6rem", color: "#64748B", fontWeight: 700 }}>
+                                  Transit: Next stop {nextAct.title}
+                                </Typography>
+                              </Box>
+                            </Box>
+                          )}
+                        </Box>
                       );
                     })
                   )}
                 </Box>
+                )}
               </Box>
             ) : (
               // --- Mobile Activities Tab ---
@@ -1771,7 +2349,7 @@ export default function App() {
                 </Box>
 
                 {/* Filters Row */}
-                <Box sx={{ display: "flex", gap: 1, mb: 2, overflowX: "auto", pb: 1 }}>
+                <Box sx={{ display: "flex", gap: 1, mb: 2, overflowX: "auto", pt: 1.5, pb: 1, px: 0.5 }}>
                   <FormControl size="small" sx={{ minWidth: 120 }}>
                     <InputLabel id="category-filter-label-mobile">Category</InputLabel>
                     <Select
@@ -1802,18 +2380,55 @@ export default function App() {
                       onChange={(e) => setSourceFilter(e.target.value)}
                     >
                       <MenuItem value="All">All Sources</MenuItem>
-                      <MenuItem value="AI">AI Recommended</MenuItem>
+                      <MenuItem value="AI">Recommended</MenuItem>
                       <MenuItem value="Manual">Collaborator Added</MenuItem>
                     </Select>
                   </FormControl>
 
-                  <IconButton
-                    id="view-toggle-btn-mobile"
-                    onClick={() => setViewMode(viewMode === "gallery" ? "list" : "gallery")}
-                    sx={{ border: "1px solid rgba(0,0,0,0.1)", borderRadius: 2 }}
-                  >
-                    {viewMode === "gallery" ? <LayoutList size={18} /> : <LayoutGrid size={18} />}
-                  </IconButton>
+                  <Box sx={{ display: "flex", gap: 0.5, border: "1px solid #E2E8F0", borderRadius: "12px", p: 0.5, bgcolor: "#F8FAFC" }}>
+                    <IconButton
+                      id="view-gallery-btn-mobile"
+                      size="small"
+                      onClick={() => setViewMode("gallery")}
+                      sx={{
+                        borderRadius: "8px",
+                        bgcolor: viewMode === "gallery" ? "#FFFFFF" : "transparent",
+                        boxShadow: viewMode === "gallery" ? "0 1px 3px rgba(0,0,0,0.1)" : "none",
+                        color: viewMode === "gallery" ? "#FF385C" : "#64748B",
+                        p: 0.8,
+                      }}
+                    >
+                      <LayoutGrid size={16} />
+                    </IconButton>
+                    <IconButton
+                      id="view-list-btn-mobile"
+                      size="small"
+                      onClick={() => setViewMode("list")}
+                      sx={{
+                        borderRadius: "8px",
+                        bgcolor: viewMode === "list" ? "#FFFFFF" : "transparent",
+                        boxShadow: viewMode === "list" ? "0 1px 3px rgba(0,0,0,0.1)" : "none",
+                        color: viewMode === "list" ? "#FF385C" : "#64748B",
+                        p: 0.8,
+                      }}
+                    >
+                      <LayoutList size={16} />
+                    </IconButton>
+                    <IconButton
+                      id="view-map-btn-mobile"
+                      size="small"
+                      onClick={() => setViewMode("map")}
+                      sx={{
+                        borderRadius: "8px",
+                        bgcolor: viewMode === "map" ? "#FFFFFF" : "transparent",
+                        boxShadow: viewMode === "map" ? "0 1px 3px rgba(0,0,0,0.1)" : "none",
+                        color: viewMode === "map" ? "#FF385C" : "#64748B",
+                        p: 0.8,
+                      }}
+                    >
+                      <Map size={16} />
+                    </IconButton>
+                  </Box>
                 </Box>
 
                 <TextField
@@ -1854,13 +2469,32 @@ export default function App() {
                 )}
 
                 {/* Ideas list render */}
-                <Box sx={{ 
-                  display: viewMode === "gallery" ? "grid" : "flex", 
-                  gridTemplateColumns: viewMode === "gallery" ? { xs: "repeat(1, minmax(0, 1fr))", sm: "repeat(2, minmax(0, 1fr))" } : undefined,
-                  flexDirection: viewMode === "gallery" ? undefined : "column",
-                  gap: 1.5,
-                  width: "100%"
-                }}>
+                {viewMode === "map" ? (
+                  <Box sx={{ height: "420px", width: "100%", mb: 3 }}>
+                    <ActivitiesMap
+                      trip={trip!}
+                      activities={filteredActivities}
+                      activityPlacementsMap={activityPlacementsMap}
+                      onUpdateActivityCoordinates={handleUpdateActivityCoordinates}
+                      onSelectActivity={(act) => {
+                        setSelectedActivity(act);
+                        setDetailSheetOpen(true);
+                      }}
+                      onToggleSchedule={(act) => {
+                        setSelectedActivity(act);
+                        setAddToItineraryOpen(true);
+                      }}
+                      isReadOnly={isReadOnly}
+                    />
+                  </Box>
+                ) : (
+                  <Box sx={{ 
+                    display: viewMode === "gallery" ? "grid" : "flex", 
+                    gridTemplateColumns: viewMode === "gallery" ? "repeat(2, minmax(0, 1fr))" : undefined,
+                    flexDirection: viewMode === "gallery" ? undefined : "column",
+                    gap: 1.5,
+                    width: "100%"
+                  }}>
                   {filteredActivities.length === 0 ? (
                     <Typography variant="body2" color="text.secondary" align="center" sx={{ py: 3 }}>
                       No activity ideas found matching the filters.
@@ -1939,16 +2573,16 @@ export default function App() {
                                     fontFamily: "var(--font-sans)",
                                   }}
                                 >
-                                  {act.source === "AI Search" ? "AI Search" : "Collaborator"}
+                                  {act.source === "AI Search" ? "Recommended" : "Collaborator"}
                                 </Typography>
                               </Box>
 
                               {/* Heart Wishlist icon at top-right */}
                               <IconButton
+                                id={`mobile-activity-heart-btn-${act.id}`}
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  setSelectedActivity(act);
-                                  setAddToItineraryOpen(true);
+                                  handleToggleLikeActivity(act);
                                 }}
                                 sx={{
                                   position: "absolute",
@@ -1963,22 +2597,36 @@ export default function App() {
                               >
                                 <Heart
                                   size={14}
-                                  fill={scheduled ? "#FF385C" : "none"}
-                                  color={scheduled ? "#FF385C" : "#222222"}
+                                  fill={(localLikedIds.includes(act.id) || (currentUser && act.likes?.includes(currentUser.uid))) ? "#FF385C" : "none"}
+                                  color={(localLikedIds.includes(act.id) || (currentUser && act.likes?.includes(currentUser.uid))) ? "#FF385C" : "#222222"}
                                 />
                               </IconButton>
                             </Box>
 
                             {/* Content Meta Block */}
                             <Box sx={{ mt: 1 }}>
-                              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 1 }}>
+                              <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5 }}>
+                                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                  <Chip
+                                    label={act.category}
+                                    size="small"
+                                    sx={{
+                                      height: 16,
+                                      fontSize: "9px",
+                                      fontWeight: "bold",
+                                      bgcolor: colors.bg,
+                                      color: colors.text,
+                                      borderRadius: "4px",
+                                    }}
+                                  />
+                                </Box>
                                 <Typography
                                   onClick={() => {
                                     setSelectedActivity(act);
                                     setDetailSheetOpen(true);
                                   }}
                                   sx={{
-                                    fontSize: "14px",
+                                    fontSize: "13px",
                                     fontWeight: 600,
                                     color: "#222222",
                                     cursor: "pointer",
@@ -1986,32 +2634,28 @@ export default function App() {
                                     overflow: "hidden",
                                     textOverflow: "ellipsis",
                                     whiteSpace: "nowrap",
-                                    maxWidth: "75%",
                                     fontFamily: "var(--font-sans)",
                                     "&:hover": { color: "#FF385C" },
                                   }}
                                 >
                                   {act.title}
                                 </Typography>
-                                <Chip
-                                  label={act.category}
-                                  size="small"
-                                  sx={{
-                                    height: 16,
-                                    fontSize: "9px",
-                                    fontWeight: "bold",
-                                    bgcolor: colors.bg,
-                                    color: colors.text,
-                                    borderRadius: "4px",
-                                  }}
-                                />
                               </Box>
+
+                              {act.rating && (
+                                <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, mt: 0.2, mb: 0.2 }}>
+                                  <Star size={11} fill="#FFB238" color="#FFB238" />
+                                  <Typography sx={{ fontSize: "11.5px", fontWeight: "bold", color: "#1E293B" }}>
+                                    {act.rating}
+                                  </Typography>
+                                </Box>
+                              )}
 
                               <Box sx={{ display: "flex", flexDirection: "column", gap: 0.1, mt: 0.4 }}>
                                 {act.location && (
                                   <Typography
                                     sx={{
-                                      fontSize: "12px",
+                                      fontSize: "11px",
                                       color: "#6A6A6A",
                                       display: "flex",
                                       alignItems: "center",
@@ -2019,14 +2663,14 @@ export default function App() {
                                       fontFamily: "var(--font-sans)",
                                     }}
                                   >
-                                    <MapPin size={10} style={{ color: "#6A6A6A" }} />
-                                    <span>{act.location}</span>
+                                    <MapPin size={10} style={{ color: "#6A6A6A", flexShrink: 0 }} />
+                                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{act.location}</span>
                                   </Typography>
                                 )}
                                 {(act.estimatedDuration || act.startTime) && (
                                   <Typography
                                     sx={{
-                                      fontSize: "12px",
+                                      fontSize: "11px",
                                       color: "#6A6A6A",
                                       display: "flex",
                                       alignItems: "center",
@@ -2034,8 +2678,8 @@ export default function App() {
                                       fontFamily: "var(--font-sans)",
                                     }}
                                   >
-                                    <Clock size={10} style={{ color: "#6A6A6A" }} />
-                                    <span>
+                                    <Clock size={10} style={{ color: "#6A6A6A", flexShrink: 0 }} />
+                                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                                       {act.estimatedDuration || "Flexible duration"}
                                       {act.startTime ? ` · ${act.startTime}` : ""}
                                     </span>
@@ -2050,7 +2694,7 @@ export default function App() {
                                     color: "#6A6A6A",
                                     fontStyle: "italic",
                                     mt: 0.6,
-                                    WebkitLineClamp: 2,
+                                    WebkitLineClamp: 1,
                                     display: "-webkit-box",
                                     overflow: "hidden",
                                     WebkitBoxOrient: "vertical",
@@ -2062,10 +2706,10 @@ export default function App() {
                                 </Typography>
                               )}
 
-                              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mt: 1.2 }}>
-                                <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mt: 1.2, gap: 0.5 }}>
+                                <Box sx={{ display: "flex", alignItems: "center", gap: 0.4, minWidth: 0 }}>
                                   {act.createdByPhotoURL ? (
-                                    <Avatar src={act.createdByPhotoURL} sx={{ width: 16, height: 16 }} />
+                                    <Avatar src={act.createdByPhotoURL} {...({ referrerPolicy: "no-referrer" } as any)} sx={{ width: 16, height: 16, flexShrink: 0 }} />
                                   ) : (
                                     <Avatar
                                       sx={{
@@ -2075,12 +2719,13 @@ export default function App() {
                                         color: "#FFFFFF",
                                         fontSize: "8px",
                                         fontWeight: "bold",
+                                        flexShrink: 0,
                                       }}
                                     >
                                       {act.createdBy ? act.createdBy[0].toUpperCase() : "C"}
                                     </Avatar>
                                   )}
-                                  <Typography sx={{ fontSize: "11px", color: "#6A6A6A", fontFamily: "var(--font-sans)" }}>
+                                  <Typography sx={{ fontSize: "10px", color: "#6A6A6A", fontFamily: "var(--font-sans)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 55 }}>
                                     {act.createdBy || "Collaborator"}
                                   </Typography>
                                 </Box>
@@ -2096,10 +2741,10 @@ export default function App() {
                                     sx={{
                                       borderRadius: "20px",
                                       textTransform: "none",
-                                      fontSize: "11px",
+                                      fontSize: "10px",
                                       fontWeight: 600,
-                                      px: 1.8,
-                                      py: 0.4,
+                                      px: 1.2,
+                                      py: 0.3,
                                       bgcolor: scheduled ? "#FFFFFF" : "#FF385C",
                                       color: scheduled ? "#222222" : "#FFFFFF",
                                       border: scheduled ? "1px solid #DDDDDD" : "none",
@@ -2112,7 +2757,7 @@ export default function App() {
                                       },
                                     }}
                                   >
-                                    {scheduled ? "Scheduled" : "+ Schedule"}
+                                    {scheduled ? "Scheduled" : "+ Add"}
                                   </Button>
                                 )}
                               </Box>
@@ -2154,6 +2799,14 @@ export default function App() {
                               </Typography>
                               <Box sx={{ display: "flex", gap: 0.5, mt: 0.2, flexWrap: "wrap", alignItems: "center" }}>
                                 <Chip label={act.category} size="small" sx={{ height: 14, fontSize: "0.55rem", bgcolor: colors.bg, color: colors.text }} />
+                                
+                                {act.rating && (
+                                  <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.3, ml: 0.5, fontSize: "0.65rem", fontWeight: "bold", color: "#1E293B" }}>
+                                    <Star size={9} fill="#FFB238" color="#FFB238" />
+                                    <span>{act.rating}</span>
+                                  </Box>
+                                )}{" "}
+
                                 {act.location && (
                                   <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.2, ml: 0.5, color: "text.secondary", fontSize: "0.65rem" }}>
                                     <MapPin size={8} />
@@ -2190,6 +2843,7 @@ export default function App() {
                     })
                   )}
                 </Box>
+                )}
                   </>
                 )}
               </Box>
@@ -2275,9 +2929,28 @@ export default function App() {
             setDetailSheetOpen(false);
             setSelectedActivity(null);
           }}
-          onAddToItinerary={(act) => {
+          onAddToItinerary={async (act) => {
             setDetailSheetOpen(false);
-            setSelectedActivity(act);
+            if (act.id && act.id.startsWith("preview-")) {
+              const savedAct = await handleAddManualActivity({
+                title: act.title,
+                category: act.category,
+                imageURL: act.imageURL,
+                location: act.location,
+                notes: act.notes,
+                estimatedDuration: act.estimatedDuration,
+                rating: act.rating,
+                source: "AI Search",
+                sourceDetail: "Grounded with Google Maps"
+              });
+              if (savedAct) {
+                setSelectedActivity(savedAct);
+              } else {
+                setSelectedActivity(act);
+              }
+            } else {
+              setSelectedActivity(act);
+            }
             setAddToItineraryOpen(true);
           }}
           onRemoveFromItinerary={handleUnscheduleActivity}
@@ -2321,6 +2994,20 @@ export default function App() {
             onClose={() => setShareTripDialogOpen(false)}
             trip={trip}
             collaborators={collaborators}
+          />
+        )}
+
+        {trip && (
+          <TravelAssistantChat
+            isOpen={assistantOpen}
+            onClose={() => setAssistantOpen(false)}
+            destination={trip.destination || trip.name}
+            tripName={trip.name}
+            onAddActivity={handleAddManualActivity}
+            onPreviewActivity={(act) => {
+              setSelectedActivity(act as Activity);
+              setDetailSheetOpen(true);
+            }}
           />
         )}
       </Box>

@@ -864,7 +864,7 @@ export default function TripCreator({ onTripLoaded, onShowAuth, currentUser }: T
                       {loading ? (
                         <>
                           <CircularProgress size={18} sx={{ color: "#FFFFFF" }} />
-                          <span>Building custom AI itinerary...</span>
+                          <span>Creating custom itinerary...</span>
                         </>
                       ) : (
                         <>
@@ -1117,8 +1117,11 @@ export default function TripCreator({ onTripLoaded, onShowAuth, currentUser }: T
         sx={{
           "& .MuiDialog-paper": {
             borderRadius: "20px",
-            p: 1.5,
-            bgcolor: "#FFFFFF"
+            p: { xs: 1, sm: 1.5 },
+            bgcolor: "#FFFFFF",
+            overflowX: "hidden",
+            width: "calc(100% - 32px)",
+            margin: { xs: 2, sm: "auto" }
           }
         }}
       >
@@ -1132,8 +1135,8 @@ export default function TripCreator({ onTripLoaded, onShowAuth, currentUser }: T
         </Box>
         <Divider />
 
-        <Box sx={{ p: 2.5, display: "flex", flexDirection: "column", gap: 3.5 }}>
-          <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 2 }}>
+        <Box sx={{ p: { xs: 2, sm: 2.5 }, display: "flex", flexDirection: "column", gap: 3 }}>
+          <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" }, gap: 2 }}>
             <Box>
               <Typography sx={{ color: "text.secondary", fontSize: "0.72rem", fontWeight: 800, mb: 1, textTransform: "uppercase" }}>
                 DEPARTING
@@ -1151,7 +1154,8 @@ export default function TripCreator({ onTripLoaded, onShowAuth, currentUser }: T
                   borderRadius: "10px",
                   fontSize: "0.95rem",
                   fontWeight: 700,
-                  outline: "none"
+                  outline: "none",
+                  boxSizing: "border-box"
                 }}
               />
             </Box>
@@ -1172,7 +1176,8 @@ export default function TripCreator({ onTripLoaded, onShowAuth, currentUser }: T
                   borderRadius: "10px",
                   fontSize: "0.95rem",
                   fontWeight: 700,
-                  outline: "none"
+                  outline: "none",
+                  boxSizing: "border-box"
                 }}
               />
             </Box>
