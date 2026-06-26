@@ -17,6 +17,7 @@ import { getCategoryImage } from "../lib/images";
 import { Activity } from "../types";
 import { auth } from "../lib/firebase";
 import RichTextEditor from "./RichTextEditor";
+import { PrimaryButton, PillButton } from "./Button";
 
 interface AddActivityDialogProps {
   open: boolean;
@@ -252,31 +253,21 @@ export default function AddActivityDialog({
           />
         </DialogContent>
 
-        <DialogActions sx={{ px: 2, pb: 1, pt: 0.5 }}>
-          <Button
+        <DialogActions sx={{ px: 2, pb: 2, pt: 0.5 }}>
+          <PillButton
             id="cancel-add-btn"
             onClick={onClose}
-            color="inherit"
-            sx={{ textTransform: "none", fontSize: "0.82rem", fontWeight: 600 }}
+            size="sm"
           >
             Cancel
-          </Button>
-          <Button
+          </PillButton>
+          <PrimaryButton
             id="submit-add-btn"
             type="submit"
-            variant="contained"
-            color="primary"
-            sx={{
-              textTransform: "none",
-              fontSize: "0.82rem",
-              fontWeight: 700,
-              bgcolor: "#FF385C",
-              color: "#FFFFFF",
-              "&:hover": { bgcolor: "#E00B41" }
-            }}
+            size="sm"
           >
             Save Idea
-          </Button>
+          </PrimaryButton>
         </DialogActions>
       </Box>
     </Dialog>

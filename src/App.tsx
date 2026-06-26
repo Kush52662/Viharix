@@ -92,6 +92,14 @@ import SparksSelector from "./components/SparksSelector";
 import ItineraryMap from "./components/ItineraryMap";
 import ActivitiesMap from "./components/ActivitiesMap";
 import TravelAssistantChat from "./components/TravelAssistantChat";
+import {
+  PrimaryButton,
+  SecondaryButton,
+  PillButton,
+  IconCircleButton,
+  DestructiveButton,
+  SegmentButton,
+} from "./components/Button";
 
 // Theme and helpers
 import theme from "./lib/theme";
@@ -129,7 +137,7 @@ export default function App() {
   const [collaborators, setCollaborators] = useState<Collaborator[]>([]);
 
   // Local/UI configuration states
-  const [currentTab, setCurrentTab] = useState<"itinerary" | "activities" | "profile" | "my-trips">("my-trips");
+  const [currentTab, setCurrentTab] = useState<"ai" | "itinerary" | "activities" | "profile" | "my-trips">("my-trips");
   const [selectedDay, setSelectedDay] = useState<string>("Day 1");
   const [viewMode, setViewMode] = useState<"gallery" | "list" | "map">("gallery");
   const [searchQuery, setSearchQuery] = useState("");
@@ -412,9 +420,9 @@ export default function App() {
   // Synchronize active navigation tab when a trip is loaded or unloaded
   useEffect(() => {
     if (trip) {
-      setCurrentTab((prev) => (prev === "my-trips" || prev === "profile" ? "itinerary" : prev));
+      setCurrentTab((prev) => (prev === "my-trips" || prev === "profile" ? "ai" : prev));
     } else {
-      setCurrentTab((prev) => (prev === "itinerary" || prev === "activities" ? "my-trips" : prev));
+      setCurrentTab((prev) => (prev === "itinerary" || prev === "activities" || prev === "ai" ? "my-trips" : prev));
     }
   }, [trip]);
 
@@ -987,7 +995,16 @@ export default function App() {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <Box sx={{ minHeight: "100vh", bgcolor: "background.default", pb: { xs: 12, sm: 14 }, display: "flex", flexDirection: "column", overflowX: "hidden" }}>
+      <Box sx={{ 
+        minHeight: "100vh", 
+        height: currentTab === "ai" ? "100vh" : "auto",
+        bgcolor: "background.default", 
+        pb: { xs: currentTab === "ai" ? 0 : 12, sm: 14 }, 
+        display: "flex", 
+        flexDirection: "column", 
+        overflow: currentTab === "ai" ? "hidden" : "visible",
+        overflowX: "hidden" 
+      }}>
         
         {/* Sticky Header */}
         <Box sx={{ bgcolor: "#FFFFFF", borderBottom: "1px solid rgba(0,0,0,0.06)", position: "sticky", top: 0, zIndex: 1100 }}>
@@ -997,29 +1014,18 @@ export default function App() {
             <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 1 }}>
               {/* Back button & Breadcrumb Trip Name */}
               <Box sx={{ display: "flex", alignItems: "center", gap: { xs: 0.8, sm: 1.5 }, minWidth: 0, flexShrink: 1 }}>
-                <Button
+                <PillButton
                   id="header-back-btn"
-                  size="small"
-                  color="inherit"
+                  size="sm"
                   startIcon={<ArrowLeft size={16} />}
                   onClick={() => {
                     window.location.hash = "";
                     setTrip(null);
                     setCurrentTab("itinerary");
                   }}
-                  sx={{ 
-                    p: "6px 12px", 
-                    borderRadius: "20px", 
-                    bgcolor: "#f7f7f7", 
-                    color: "#222222",
-                    fontSize: "0.85rem", 
-                    fontWeight: 600,
-                    flexShrink: 0,
-                    "&:hover": { bgcolor: "#ebebeb" }
-                  }}
                 >
                   Home
-                </Button>
+                </PillButton>
                 <Typography sx={{ fontSize: "0.82rem", color: "#6A6A6A", fontWeight: 500, flexShrink: 0 }}>
                   /
                 </Typography>
@@ -1037,37 +1043,13 @@ export default function App() {
                 </Typography>
               </Box>
 
-              {/* Toolbar Actions */}
-              <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
-                <Button
-                  id="header-ask-gemini-btn"
-                  variant="contained"
-                  onClick={() => setAssistantOpen(true)}
-                  startIcon={<Sparkles size={16} className="text-white" />}
-                  sx={{
-                    borderRadius: "20px",
-                    textTransform: "none",
-                    fontWeight: 700,
-                    fontSize: { xs: "0.72rem", sm: "0.82rem" },
-                    p: { xs: "4px 10px", sm: "6px 14px" },
-                    background: "linear-gradient(135deg, #FF385C 0%, #FF5A5F 100%)",
-                    boxShadow: "0 3px 10px rgba(255, 56, 92, 0.2)",
-                    "&:hover": {
-                      background: "linear-gradient(135deg, #E0314F 0%, #E04D51 100%)",
-                      boxShadow: "0 4px 12px rgba(255, 56, 92, 0.3)"
-                    }
-                  }}
-                >
-                  <Box component="span" sx={{ display: { xs: "none", sm: "inline" } }}>Ask Assistant</Box>
-                  <Box component="span" sx={{ display: { xs: "inline", sm: "none" } }}>Assistant</Box>
-                </Button>
-              </Box>
+
             </Box>
           </Box>
         </Box>
 
         {/* --- MAIN LAYOUT WINDOW --- */}
-        <Box sx={{ flexGrow: 1, p: { xs: 2, md: 3 }, maxWidth: 1200, mx: "auto", width: "100%" }}>
+        <Box sx={{ flexGrow: 1, p: { xs: currentTab === "ai" ? 0 : 2, md: 3 }, maxWidth: 1200, mx: "auto", width: "100%" }}>
           {isReadOnly && (
             <Alert severity="info" id="view-only-alert" sx={{ mb: 2.5 }}>
               You are currently viewing this trip as a Guest. <strong>Sign In</strong> using the button in the header to schedule, reorder activities, or add manual ideas!
@@ -1083,7 +1065,47 @@ export default function App() {
               copied={copied}
               onEditTrip={() => setEditTripDialogOpen(true)}
               onDeleteTrip={handleDeleteTrip}
+              activities={activities}
+              placements={placements}
             />
+          ) : currentTab === "ai" ? (
+            <Box sx={{ 
+              maxWidth: 800, 
+              mx: "auto", 
+              width: "100%",
+              height: { xs: "calc(100vh - 136px)", sm: "690px" },
+              display: "flex",
+              flexDirection: "column"
+            }}>
+              {/* Page Title - Desktop version */}
+              <Box sx={{ display: { xs: "none", sm: "flex" }, justifyContent: "space-between", alignItems: "center", mb: 2, px: 0.5 }}>
+                <Typography variant="h6" sx={{ color: "#222222", fontWeight: 700 }}>
+                  AI Travel Assistant
+                </Typography>
+              </Box>
+
+              {/* Page Title - Mobile version */}
+              <Box sx={{ display: { xs: "flex", sm: "none" }, justifyContent: "space-between", alignItems: "center", mb: 1, px: 2, pt: 1.5 }}>
+                <Typography variant="subtitle1" color="primary" sx={{ fontWeight: "bold" }}>
+                  AI Travel Assistant
+                </Typography>
+              </Box>
+
+              <Box sx={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+                <TravelAssistantChat
+                  isOpen={true}
+                  onClose={() => {}}
+                  destination={trip.destination || trip.name}
+                  tripName={trip.name}
+                  onAddActivity={handleAddManualActivity}
+                  onPreviewActivity={(act) => {
+                    setSelectedActivity(act as Activity);
+                    setDetailSheetOpen(true);
+                  }}
+                  isInline={true}
+                />
+              </Box>
+            </Box>
           ) : (
             <>
               {/* 1. Desktop Side-by-Side View */}
@@ -1130,32 +1152,16 @@ export default function App() {
                 {daysList.map((d, idx) => {
                   const isSelected = selectedDay === d;
                   return (
-                    <Button
+                    <SegmentButton
                       id={`day-tab-desktop-${d}`}
                       key={d}
                       onClick={() => setSelectedDay(d)}
-                      sx={{
-                        minWidth: 80,
-                        height: 36,
-                        borderRadius: "20px",
-                        flexShrink: 0,
-                        px: 2.5,
-                        textTransform: "none",
-                        fontSize: "0.8rem",
-                        fontWeight: 700,
-                        bgcolor: isSelected ? "#FF385C" : "#F7F7F7",
-                        color: isSelected ? "#FFFFFF" : "#484848",
-                        border: "1px solid",
-                        borderColor: isSelected ? "#FF385C" : "#EBEBEB",
-                        transition: "all 0.15s ease",
-                        "&:hover": {
-                          bgcolor: isSelected ? "#E00B41" : "#EBEBEB",
-                          borderColor: isSelected ? "#E00B41" : "#DDDDDD",
-                        }
-                      }}
+                      active={isSelected}
+                      size="sm"
+                      className="min-w-[80px]"
                     >
                       {d}
-                    </Button>
+                    </SegmentButton>
                   );
                 })}
               </Box>
@@ -1474,29 +1480,14 @@ export default function App() {
                       <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
                         <Typography variant="h6" color="primary" sx={{ fontWeight: "bold" }}>Activities Idea Pool</Typography>
                 {!isReadOnly && (
-                  <Button
+                  <SecondaryButton
                     id="add-activity-btn-desktop"
-                    variant="contained"
-                    size="small"
+                    size="sm"
                     startIcon={<Plus size={16} />}
                     onClick={() => setAddActivityOpen(true)}
-                    sx={{
-                      bgcolor: "#008489",
-                      color: "#FFFFFF",
-                      fontWeight: 600,
-                      borderRadius: "8px",
-                      textTransform: "none",
-                      px: 2,
-                      py: 0.8,
-                      boxShadow: "none",
-                      "&:hover": {
-                        bgcolor: "#006F73",
-                        boxShadow: "none"
-                      }
-                    }}
                   >
                     Add Idea
-                  </Button>
+                  </SecondaryButton>
                 )}
               </Box>
 
@@ -1584,17 +1575,15 @@ export default function App() {
 
                   {/* AI trigger */}
                   {!isReadOnly && (
-                    <Button
+                    <PillButton
                       id="get-ideas-btn-desktop"
-                      variant="text"
-                      color="primary"
-                      size="small"
+                      size="sm"
+                      startIcon={<Sparkles size={14} />}
                       onClick={handleGetMoreIdeas}
                       disabled={aiGenerating}
-                      startIcon={<Sparkles size={14} />}
                     >
                       {aiGenerating ? "Searching..." : "Get More AI Ideas"}
-                    </Button>
+                    </PillButton>
                   )}
                 </Box>
 
@@ -1749,28 +1738,38 @@ export default function App() {
 
                           {/* Content Meta Block */}
                           <Box sx={{ mt: 1.2 }}>
-                            <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 1 }}>
-                              <Typography
-                                onClick={() => {
-                                  setSelectedActivity(act);
-                                  setDetailSheetOpen(true);
-                                }}
-                                sx={{
-                                  fontSize: "15px",
-                                  fontWeight: 600,
-                                  color: "#222222",
-                                  cursor: "pointer",
-                                  lineHeight: 1.3,
-                                  overflow: "hidden",
-                                  textOverflow: "ellipsis",
-                                  whiteSpace: "nowrap",
-                                  maxWidth: "75%",
-                                  fontFamily: "var(--font-sans)",
-                                  "&:hover": { color: "#FF385C" },
-                                }}
-                              >
-                                {act.title}
-                              </Typography>
+                            {/* Title (Full width for clean layout) */}
+                            <Typography
+                              onClick={() => {
+                                setSelectedActivity(act);
+                                setDetailSheetOpen(true);
+                              }}
+                              sx={{
+                                fontSize: "15px",
+                                fontWeight: 700,
+                                color: "#222222",
+                                cursor: "pointer",
+                                lineHeight: 1.3,
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                                fontFamily: "var(--font-sans)",
+                                "&:hover": { color: "#FF385C" },
+                              }}
+                            >
+                              {act.title}
+                            </Typography>
+
+                            {/* Rating + Category Row */}
+                            <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 0.5, flexWrap: "wrap" }}>
+                              {act.rating && (
+                                <Box sx={{ display: "flex", alignItems: "center", gap: 0.3 }}>
+                                  <Star size={13} fill="#222222" color="#222222" />
+                                  <Typography sx={{ fontSize: "12px", fontWeight: "bold", color: "#222222" }}>
+                                    {act.rating}
+                                  </Typography>
+                                </Box>
+                              )}
                               <Chip
                                 label={act.category}
                                 size="small"
@@ -1785,125 +1784,74 @@ export default function App() {
                               />
                             </Box>
 
-                            {act.rating && (
-                              <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, mt: 0.5, mb: 0.2 }}>
-                                <Star size={13} fill="#FFB238" color="#FFB238" />
-                                <Typography sx={{ fontSize: "12px", fontWeight: "bold", color: "#1E293B" }}>
-                                  {act.rating}
-                                </Typography>
-                              </Box>
-                            )}
-
-                            <Box sx={{ display: "flex", flexDirection: "column", gap: 0.2, mt: 0.5 }}>
+                            {/* Location and Duration on a single elegant row */}
+                            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mt: 1, overflow: "hidden" }}>
                               {act.location && (
                                 <Typography
                                   sx={{
-                                    fontSize: "13px",
+                                    fontSize: "12.5px",
                                     color: "#6A6A6A",
                                     display: "flex",
                                     alignItems: "center",
                                     gap: 0.5,
                                     fontFamily: "var(--font-sans)",
+                                    overflow: "hidden",
+                                    textOverflow: "ellipsis",
+                                    whiteSpace: "nowrap",
                                   }}
                                 >
-                                  <MapPin size={12} style={{ color: "#6A6A6A" }} />
+                                  <MapPin size={12} style={{ color: "#6A6A6A", flexShrink: 0 }} />
                                   <span>{act.location}</span>
                                 </Typography>
                               )}
-                              {(act.estimatedDuration || act.startTime) && (
+                              {act.estimatedDuration && (
                                 <Typography
                                   sx={{
-                                    fontSize: "13px",
+                                    fontSize: "12.5px",
                                     color: "#6A6A6A",
                                     display: "flex",
                                     alignItems: "center",
                                     gap: 0.5,
                                     fontFamily: "var(--font-sans)",
+                                    flexShrink: 0,
                                   }}
                                 >
                                   <Clock size={12} style={{ color: "#6A6A6A" }} />
-                                  <span>
-                                    {act.estimatedDuration || "Flexible duration"}
-                                    {act.startTime ? ` · starts at ${act.startTime}` : ""}
-                                  </span>
+                                  <span>{act.estimatedDuration}</span>
                                 </Typography>
                               )}
                             </Box>
 
-                            {act.notes && (
-                              <Typography
-                                sx={{
-                                  fontSize: "12px",
-                                  color: "#6A6A6A",
-                                  fontStyle: "italic",
-                                  mt: 0.8,
-                                  WebkitLineClamp: 2,
-                                  display: "-webkit-box",
-                                  overflow: "hidden",
-                                  WebkitBoxOrient: "vertical",
-                                  fontFamily: "var(--font-sans)",
-                                  lineHeight: 1.4,
-                                }}
-                              >
-                                "{act.notes.replace(/<[^>]*>/g, "")}"
-                              </Typography>
-                            )}
-
-                            <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mt: 1.5 }}>
-                              <Box sx={{ display: "flex", alignItems: "center", gap: 0.6 }}>
-                                {act.createdByPhotoURL ? (
-                                  <Avatar src={act.createdByPhotoURL} {...({ referrerPolicy: "no-referrer" } as any)} sx={{ width: 18, height: 18 }} />
-                                ) : (
-                                  <Avatar
-                                    sx={{
-                                      width: 18,
-                                      height: 18,
-                                      bgcolor: "#92174D",
-                                      color: "#FFFFFF",
-                                      fontSize: "9px",
-                                      fontWeight: "bold",
+                            {/* Action Button (Notes and creator attribution moved to detail view) */}
+                            {!isReadOnly && (
+                              <Box sx={{ mt: 1.5 }}>
+                                {scheduled ? (
+                                  <PillButton
+                                    id={`add-to-itinerary-btn-desktop-${act.id}`}
+                                    size="sm"
+                                    onClick={() => {
+                                      setSelectedActivity(act);
+                                      setAddToItineraryOpen(true);
                                     }}
+                                    className="w-full justify-center !rounded-full border border-neutral-200 bg-[#f7f7f7] text-[#222222] hover:bg-[#ebebeb]"
                                   >
-                                    {act.createdBy ? act.createdBy[0].toUpperCase() : "C"}
-                                  </Avatar>
+                                    Scheduled
+                                  </PillButton>
+                                ) : (
+                                  <PrimaryButton
+                                    id={`add-to-itinerary-btn-desktop-${act.id}`}
+                                    size="sm"
+                                    onClick={() => {
+                                      setSelectedActivity(act);
+                                      setAddToItineraryOpen(true);
+                                    }}
+                                    className="w-full justify-center"
+                                  >
+                                    + Add to Trip
+                                  </PrimaryButton>
                                 )}
-                                <Typography sx={{ fontSize: "12px", color: "#6A6A6A", fontFamily: "var(--font-sans)" }}>
-                                  {act.createdBy || "Collaborator"}
-                                </Typography>
                               </Box>
-
-                              {!isReadOnly && (
-                                <Button
-                                  id={`add-to-itinerary-btn-desktop-${act.id}`}
-                                  size="small"
-                                  onClick={() => {
-                                    setSelectedActivity(act);
-                                    setAddToItineraryOpen(true);
-                                  }}
-                                  sx={{
-                                    borderRadius: "20px",
-                                    whiteSpace: "nowrap",
-                                    flexShrink: 0,
-                                    textTransform: "none",
-                                    fontSize: "12px",
-                                    fontWeight: 600,
-                                    px: 2,
-                                    py: 0.5,
-                                    bgcolor: scheduled ? "#FFFFFF" : "#FF385C",
-                                    color: scheduled ? "#222222" : "#FFFFFF",
-                                    border: scheduled ? "1px solid #DDDDDD" : "none",
-                                    boxShadow: "none",
-                                    "&:hover": {
-                                      bgcolor: scheduled ? "#F7F7F7" : "#E00B41",
-                                      boxShadow: "none",
-                                    },
-                                    transition: "all 0.15s ease-in-out",
-                                  }}
-                                >
-                                  {scheduled ? "Scheduled" : "+ Add"}
-                                </Button>
-                              )}
-                            </Box>
+                            )}
                           </Box>
                         </Box>
                       );
@@ -1945,8 +1893,8 @@ export default function App() {
                               <Chip label={act.source === "AI Search" ? "Recommended" : "Idea"} size="small" sx={{ height: 16, fontSize: "0.6rem" }} />
                               
                               {act.rating && (
-                                <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.3, ml: 0.5, fontSize: "0.7rem", fontWeight: "bold", color: "#1E293B" }}>
-                                  <Star size={10} fill="#FFB238" color="#FFB238" />
+                                <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.3, ml: 0.5, fontSize: "0.7rem", fontWeight: "bold", color: "#222222" }}>
+                                  <Star size={10} fill="#222222" color="#222222" />
                                   <span>{act.rating}</span>
                                 </Box>
                               )}
@@ -2055,27 +2003,16 @@ export default function App() {
                   {daysList.map((d, idx) => {
                     const isSelected = selectedDay === d;
                     return (
-                      <Button
+                      <SegmentButton
                         id={`day-tab-mobile-${d}`}
                         key={d}
                         onClick={() => setSelectedDay(d)}
-                        sx={{
-                          borderRadius: "20px",
-                          px: 2.5,
-                          fontSize: "0.75rem",
-                          fontWeight: "bold",
-                          textTransform: "none",
-                          bgcolor: isSelected ? "#FF385C" : "#F7F7F7",
-                          color: isSelected ? "#FFFFFF" : "#484848",
-                          border: "1px solid",
-                          borderColor: isSelected ? "#FF385C" : "#E2E8F0",
-                          flexShrink: 0,
-                          minWidth: 80,
-                          height: 34,
-                        }}
+                        active={isSelected}
+                        size="sm"
+                        className="min-w-[80px]"
                       >
                         {d}
-                      </Button>
+                      </SegmentButton>
                     );
                   })}
                 </Box>
@@ -2322,29 +2259,14 @@ export default function App() {
                       <Typography variant="subtitle1" color="primary" sx={{ fontWeight: "bold" }}>Travel Ideas Pool</Typography>
                   
                   {!isReadOnly && (
-                    <Button
+                    <SecondaryButton
                       id="add-activity-btn-mobile"
-                      variant="contained"
-                      size="small"
+                      size="sm"
                       startIcon={<Plus size={14} />}
                       onClick={() => setAddActivityOpen(true)}
-                      sx={{
-                        bgcolor: "#008489",
-                        color: "#FFFFFF",
-                        fontWeight: 600,
-                        borderRadius: "8px",
-                        textTransform: "none",
-                        px: 1.5,
-                        py: 0.6,
-                        boxShadow: "none",
-                        "&:hover": {
-                          bgcolor: "#006F73",
-                          boxShadow: "none"
-                        }
-                      }}
                     >
                       Add Idea
-                    </Button>
+                    </SecondaryButton>
                   )}
                 </Box>
 
@@ -2448,18 +2370,16 @@ export default function App() {
 
                 {/* Get More AI button */}
                 {!isReadOnly && (
-                  <Button
+                  <PillButton
                     id="get-ideas-btn-mobile"
-                    variant="outlined"
-                    color="primary"
-                    fullWidth
+                    size="sm"
+                    className="w-full mb-[10px]"
+                    startIcon={<Sparkles size={14} />}
                     onClick={handleGetMoreIdeas}
                     disabled={aiGenerating}
-                    sx={{ mb: 2.5 }}
-                    startIcon={<Sparkles size={14} />}
                   >
                     {aiGenerating ? "AI is fetching options..." : "Get More AI Recommendations"}
-                  </Button>
+                  </PillButton>
                 )}
 
                 {aiError && (
@@ -2605,53 +2525,54 @@ export default function App() {
 
                             {/* Content Meta Block */}
                             <Box sx={{ mt: 1 }}>
-                              <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5 }}>
-                                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                  <Chip
-                                    label={act.category}
-                                    size="small"
-                                    sx={{
-                                      height: 16,
-                                      fontSize: "9px",
-                                      fontWeight: "bold",
-                                      bgcolor: colors.bg,
-                                      color: colors.text,
-                                      borderRadius: "4px",
-                                    }}
-                                  />
-                                </Box>
-                                <Typography
-                                  onClick={() => {
-                                    setSelectedActivity(act);
-                                    setDetailSheetOpen(true);
-                                  }}
+                              {/* Title (Full width for clean layout) */}
+                              <Typography
+                                onClick={() => {
+                                  setSelectedActivity(act);
+                                  setDetailSheetOpen(true);
+                                }}
+                                sx={{
+                                  fontSize: "13px",
+                                  fontWeight: 700,
+                                  color: "#222222",
+                                  cursor: "pointer",
+                                  lineHeight: 1.3,
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                  whiteSpace: "nowrap",
+                                  fontFamily: "var(--font-sans)",
+                                  "&:hover": { color: "#FF385C" },
+                                }}
+                              >
+                                {act.title}
+                              </Typography>
+
+                              {/* Rating + Category Row */}
+                              <Box sx={{ display: "flex", alignItems: "center", gap: 0.8, mt: 0.5, flexWrap: "wrap" }}>
+                                {act.rating && (
+                                  <Box sx={{ display: "flex", alignItems: "center", gap: 0.3 }}>
+                                    <Star size={11} fill="#222222" color="#222222" />
+                                    <Typography sx={{ fontSize: "11px", fontWeight: "bold", color: "#222222" }}>
+                                      {act.rating}
+                                    </Typography>
+                                  </Box>
+                                )}
+                                <Chip
+                                  label={act.category}
+                                  size="small"
                                   sx={{
-                                    fontSize: "13px",
-                                    fontWeight: 600,
-                                    color: "#222222",
-                                    cursor: "pointer",
-                                    lineHeight: 1.3,
-                                    overflow: "hidden",
-                                    textOverflow: "ellipsis",
-                                    whiteSpace: "nowrap",
-                                    fontFamily: "var(--font-sans)",
-                                    "&:hover": { color: "#FF385C" },
+                                    height: 16,
+                                    fontSize: "9px",
+                                    fontWeight: "bold",
+                                    bgcolor: colors.bg,
+                                    color: colors.text,
+                                    borderRadius: "4px",
                                   }}
-                                >
-                                  {act.title}
-                                </Typography>
+                                />
                               </Box>
 
-                              {act.rating && (
-                                <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, mt: 0.2, mb: 0.2 }}>
-                                  <Star size={11} fill="#FFB238" color="#FFB238" />
-                                  <Typography sx={{ fontSize: "11.5px", fontWeight: "bold", color: "#1E293B" }}>
-                                    {act.rating}
-                                  </Typography>
-                                </Box>
-                              )}
-
-                              <Box sx={{ display: "flex", flexDirection: "column", gap: 0.1, mt: 0.4 }}>
+                              {/* Location and Duration on a single row */}
+                              <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 0.8, overflow: "hidden" }}>
                                 {act.location && (
                                   <Typography
                                     sx={{
@@ -2661,13 +2582,16 @@ export default function App() {
                                       alignItems: "center",
                                       gap: 0.4,
                                       fontFamily: "var(--font-sans)",
+                                      overflow: "hidden",
+                                      textOverflow: "ellipsis",
+                                      whiteSpace: "nowrap",
                                     }}
                                   >
                                     <MapPin size={10} style={{ color: "#6A6A6A", flexShrink: 0 }} />
-                                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{act.location}</span>
+                                    <span>{act.location}</span>
                                   </Typography>
                                 )}
-                                {(act.estimatedDuration || act.startTime) && (
+                                {act.estimatedDuration && (
                                   <Typography
                                     sx={{
                                       fontSize: "11px",
@@ -2676,91 +2600,45 @@ export default function App() {
                                       alignItems: "center",
                                       gap: 0.4,
                                       fontFamily: "var(--font-sans)",
-                                    }}
-                                  >
-                                    <Clock size={10} style={{ color: "#6A6A6A", flexShrink: 0 }} />
-                                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                      {act.estimatedDuration || "Flexible duration"}
-                                      {act.startTime ? ` · ${act.startTime}` : ""}
-                                    </span>
-                                  </Typography>
-                                )}
-                              </Box>
-
-                              {act.notes && (
-                                <Typography
-                                  sx={{
-                                    fontSize: "11px",
-                                    color: "#6A6A6A",
-                                    fontStyle: "italic",
-                                    mt: 0.6,
-                                    WebkitLineClamp: 1,
-                                    display: "-webkit-box",
-                                    overflow: "hidden",
-                                    WebkitBoxOrient: "vertical",
-                                    fontFamily: "var(--font-sans)",
-                                    lineHeight: 1.35,
-                                  }}
-                                >
-                                  "{act.notes.replace(/<[^>]*>/g, "")}"
-                                </Typography>
-                              )}
-
-                              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mt: 1.2, gap: 0.5 }}>
-                                <Box sx={{ display: "flex", alignItems: "center", gap: 0.4, minWidth: 0 }}>
-                                  {act.createdByPhotoURL ? (
-                                    <Avatar src={act.createdByPhotoURL} {...({ referrerPolicy: "no-referrer" } as any)} sx={{ width: 16, height: 16, flexShrink: 0 }} />
-                                  ) : (
-                                    <Avatar
-                                      sx={{
-                                        width: 16,
-                                        height: 16,
-                                        bgcolor: "#92174D",
-                                        color: "#FFFFFF",
-                                        fontSize: "8px",
-                                        fontWeight: "bold",
-                                        flexShrink: 0,
-                                      }}
-                                    >
-                                      {act.createdBy ? act.createdBy[0].toUpperCase() : "C"}
-                                    </Avatar>
-                                  )}
-                                  <Typography sx={{ fontSize: "10px", color: "#6A6A6A", fontFamily: "var(--font-sans)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 55 }}>
-                                    {act.createdBy || "Collaborator"}
-                                  </Typography>
-                                </Box>
-
-                                {!isReadOnly && (
-                                  <Button
-                                    id={`add-to-itinerary-btn-mobile-${act.id}`}
-                                    size="small"
-                                    onClick={() => {
-                                      setSelectedActivity(act);
-                                      setAddToItineraryOpen(true);
-                                    }}
-                                    sx={{
-                                      borderRadius: "20px",
-                                      textTransform: "none",
-                                      fontSize: "10px",
-                                      fontWeight: 600,
-                                      px: 1.2,
-                                      py: 0.3,
-                                      bgcolor: scheduled ? "#FFFFFF" : "#FF385C",
-                                      color: scheduled ? "#222222" : "#FFFFFF",
-                                      border: scheduled ? "1px solid #DDDDDD" : "none",
-                                      boxShadow: "none",
-                                      whiteSpace: "nowrap",
                                       flexShrink: 0,
-                                      "&:hover": {
-                                        bgcolor: scheduled ? "#F7F7F7" : "#E00B41",
-                                        boxShadow: "none",
-                                      },
                                     }}
                                   >
-                                    {scheduled ? "Scheduled" : "+ Add"}
-                                  </Button>
+                                    <Clock size={10} style={{ color: "#6A6A6A" }} />
+                                    <span>{act.estimatedDuration}</span>
+                                  </Typography>
                                 )}
                               </Box>
+
+                              {/* Action Button (Notes and creator attribution moved to detail view) */}
+                              {!isReadOnly && (
+                                <Box sx={{ mt: 1.2 }}>
+                                  {scheduled ? (
+                                    <PillButton
+                                      id={`add-to-itinerary-btn-mobile-${act.id}`}
+                                      size="sm"
+                                      onClick={() => {
+                                        setSelectedActivity(act);
+                                        setAddToItineraryOpen(true);
+                                      }}
+                                      className="w-full justify-center !rounded-full border border-neutral-200 bg-[#f7f7f7] text-[#222222] hover:bg-[#ebebeb] py-1 text-xs"
+                                    >
+                                      Scheduled
+                                    </PillButton>
+                                  ) : (
+                                    <PrimaryButton
+                                      id={`add-to-itinerary-btn-mobile-${act.id}`}
+                                      size="sm"
+                                      onClick={() => {
+                                        setSelectedActivity(act);
+                                        setAddToItineraryOpen(true);
+                                      }}
+                                      className="w-full justify-center py-1.5 text-xs"
+                                    >
+                                      + Add to Trip
+                                    </PrimaryButton>
+                                  )}
+                                </Box>
+                              )}
                             </Box>
                           </Box>
                         );
@@ -2801,8 +2679,8 @@ export default function App() {
                                 <Chip label={act.category} size="small" sx={{ height: 14, fontSize: "0.55rem", bgcolor: colors.bg, color: colors.text }} />
                                 
                                 {act.rating && (
-                                  <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.3, ml: 0.5, fontSize: "0.65rem", fontWeight: "bold", color: "#1E293B" }}>
-                                    <Star size={9} fill="#FFB238" color="#FFB238" />
+                                  <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.3, ml: 0.5, fontSize: "0.65rem", fontWeight: "bold", color: "#222222" }}>
+                                    <Star size={9} fill="#222222" color="#222222" />
                                     <span>{act.rating}</span>
                                   </Box>
                                 )}{" "}
@@ -2878,6 +2756,12 @@ export default function App() {
             }}
             showLabels
           >
+            <BottomNavigationAction
+              id="nav-ai-btn"
+              label="Ai"
+              value="ai"
+              icon={<Sparkles size={20} />}
+            />
             <BottomNavigationAction
               id="nav-itinerary-btn"
               label="Itinerary"
@@ -2997,19 +2881,7 @@ export default function App() {
           />
         )}
 
-        {trip && (
-          <TravelAssistantChat
-            isOpen={assistantOpen}
-            onClose={() => setAssistantOpen(false)}
-            destination={trip.destination || trip.name}
-            tripName={trip.name}
-            onAddActivity={handleAddManualActivity}
-            onPreviewActivity={(act) => {
-              setSelectedActivity(act as Activity);
-              setDetailSheetOpen(true);
-            }}
-          />
-        )}
+
       </Box>
     </ThemeProvider>
   );

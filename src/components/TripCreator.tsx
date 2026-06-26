@@ -31,7 +31,7 @@ import {
 import { collection, doc, setDoc, getDocs, query, where, getDoc } from "firebase/firestore";
 import { db, auth, handleFirestoreError, OperationType } from "../lib/firebase";
 import { Trip, Activity } from "../types";
-import { getCategoryImage } from "../lib/images";
+import { getCategoryImage, getCleanImage } from "../lib/images";
 import { gsap } from "gsap";
 import { User as FirebaseUser } from "firebase/auth";
 
@@ -161,26 +161,8 @@ export default function TripCreator({ onTripLoaded, onShowAuth, currentUser }: T
   const [loadedTrips, setLoadedTrips] = useState<Trip[]>([]);
   const [loadingTrips, setLoadingTrips] = useState(false);
 
-  // Map destination name to beautiful default cover photos in Unsplash
-  const DESTINATION_IMAGES: Record<string, string> = {
-    "lake tahoe": "https://images.unsplash.com/photo-1518098268026-4e43a1a009de?auto=format&fit=crop&w=800&q=80",
-    "paris": "https://images.unsplash.com/photo-1502602898657-3e91760cbb34?auto=format&fit=crop&w=800&q=80",
-    "tokyo": "https://images.unsplash.com/photo-1493976040374-85c8e12f0c0e?auto=format&fit=crop&w=800&q=80",
-    "london": "https://images.unsplash.com/photo-1513635269975-59663e0ca1ad?auto=format&fit=crop&w=800&q=80",
-    "new york": "https://images.unsplash.com/photo-1496442226666-8d4d0e62e6e9?auto=format&fit=crop&w=800&q=80",
-    "rome": "https://images.unsplash.com/photo-1552832230-c0197dd311b5?auto=format&fit=crop&w=800&q=80",
-    "bali": "https://images.unsplash.com/photo-1537996194471-e657df975ab4?auto=format&fit=crop&w=800&q=80",
-  };
-
   const getDestinationImage = (destination?: string): string => {
-    if (!destination) return "https://images.unsplash.com/photo-1501785888041-af3ef285b470?auto=format&fit=crop&w=800&q=80";
-    const norm = destination.toLowerCase();
-    for (const key of Object.keys(DESTINATION_IMAGES)) {
-      if (norm.includes(key)) {
-        return DESTINATION_IMAGES[key];
-      }
-    }
-    return "https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?auto=format&fit=crop&w=800&q=80"; // Beautiful generic travel image
+    return getCleanImage(undefined, destination || "Travel");
   };
 
   // Sync trips from both localStorage history and Firestore (if logged in)

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import {
   Box,
   Typography,
@@ -23,10 +23,13 @@ import {
   Calendar, 
   MapPin,
   Sparkles,
-  Trash2
+  Trash2,
+  Activity as ActivityIcon
 } from "lucide-react";
-import { Collaborator, Trip } from "../types";
+import { Collaborator, Trip, Activity, ItineraryPlacement } from "../types";
+import { DestructiveButton, PillButton } from "./Button";
 import { User as FirebaseUser } from "firebase/auth";
+import { motion } from "motion/react";
 
 interface ManageTripTabProps {
   trip: Trip;
@@ -36,6 +39,8 @@ interface ManageTripTabProps {
   copied: boolean;
   onEditTrip: () => void;
   onDeleteTrip?: () => void;
+  activities?: Activity[];
+  placements?: ItineraryPlacement[];
 }
 
 export default function ManageTripTab({
@@ -45,11 +50,101 @@ export default function ManageTripTab({
   onCopyCode,
   copied,
   onEditTrip,
-  onDeleteTrip
+  onDeleteTrip,
+  activities = [],
+  placements = []
 }: ManageTripTabProps) {
   const isOwner = currentUser && trip.ownerId === currentUser.uid;
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // 1. Calculate trip duration (Total Days)
+  const totalDays = useMemo(() => {
+    if (!trip?.startDate) return 3; // default if no start date set
+    const startParts = trip.startDate.split("-").map(Number);
+    if (startParts.length !== 3 || startParts.some(isNaN)) return 3;
+    const startUTC = Date.UTC(startParts[0], startParts[1] - 1, startParts[2]);
+
+    if (!trip.endDate) return 1;
+    const endParts = trip.endDate.split("-").map(Number);
+    if (endParts.length !== 3 || endParts.some(isNaN)) return 1;
+    const endUTC = Date.UTC(endParts[0], endParts[1] - 1, endParts[2]);
+
+    const diffTime = endUTC - startUTC;
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24)) + 1;
+    return diffDays > 0 ? diffDays : 1;
+  }, [trip?.startDate, trip?.endDate]);
+
+  // 2. Total scheduled activities (placements)
+  const totalScheduled = useMemo(() => {
+    return placements ? placements.length : 0;
+  }, [placements]);
+
+  // 3. Activity density per day
+  const density = useMemo(() => {
+    return totalDays > 0 ? totalScheduled / totalDays : 0;
+  }, [totalScheduled, totalDays]);
+
+  // 4. Progress percent (e.g. 100% means we have planned 2 activities per day)
+  const progressPercent = useMemo(() => {
+    if (totalDays <= 0) return 0;
+    // Let's assume 2 planned activities per day represents 100% progress
+    const ratio = totalScheduled / (totalDays * 2); 
+    return Math.min(100, Math.round(ratio * 100));
+  }, [totalScheduled, totalDays]);
+
+  // 5. Dynamic Pace Evaluation
+  const paceInfo = useMemo(() => {
+    if (totalScheduled === 0) {
+      return {
+        label: "Blank Slate",
+        color: "#64748B",
+        bgColor: "rgba(100, 116, 139, 0.08)",
+        borderColor: "rgba(100, 116, 139, 0.2)",
+        description: "No activities scheduled yet! Go to the Itinerary page to begin adding ideas to your trip timeline."
+      };
+    }
+    if (density < 1) {
+      return {
+        label: "Relaxed Pace",
+        color: "#0284C7",
+        bgColor: "rgba(2, 132, 199, 0.08)",
+        borderColor: "rgba(2, 132, 199, 0.2)",
+        description: "A leisurely pace with plenty of free time. Great for an easygoing, restful vacation!"
+      };
+    }
+    if (density <= 3) {
+      return {
+        label: "Perfect Balance",
+        color: "#16A34A",
+        bgColor: "rgba(22, 163, 74, 0.08)",
+        borderColor: "rgba(22, 163, 74, 0.2)",
+        description: "Perfect blend of structured exploration and relaxing downtime. Highly recommended!"
+      };
+    }
+    return {
+      label: "Action-Packed",
+      color: "#9333EA",
+      bgColor: "rgba(147, 51, 234, 0.08)",
+      borderColor: "rgba(147, 51, 234, 0.2)",
+      description: "A dense schedule full of sights and sounds! Get ready for a high-energy adventure."
+    };
+  }, [totalScheduled, density]);
+
+  // 6. Category Breakdown of Scheduled Activities
+  const categoryStats = useMemo(() => {
+    if (!activities || !placements) return [];
+    const counts: Record<string, number> = {};
+    placements.forEach((p) => {
+      const act = activities.find((a) => a.id === p.activityId);
+      if (act && act.category) {
+        counts[act.category] = (counts[act.category] || 0) + 1;
+      }
+    });
+    return Object.entries(counts)
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count);
+  }, [activities, placements]);
 
   const handleDeleteConfirm = async () => {
     if (onDeleteTrip) {
@@ -74,6 +169,8 @@ export default function ManageTripTab({
           Manage Trip
         </Typography>
       </Box>
+
+
 
       {/* 1. Clean Trip Profile Dashboard Header */}
       <Paper
@@ -270,7 +367,7 @@ export default function ManageTripTab({
         <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
           {collaborators.map((c) => {
             const isMe = currentUser && c.userId === currentUser.uid;
-            const displayName = isMe ? "You" : c.displayName || "Traveler";
+            const displayName = c.displayName || (isMe ? "You" : "Traveler");
             const roleLabel = c.role === "owner" ? "Host" : "Planner";
 
             return (
@@ -282,17 +379,24 @@ export default function ManageTripTab({
                   alignItems: "center",
                   justifyContent: "space-between",
                   transition: "transform 0.15s ease",
+                  gap: 1.5,
+                  pb: 1.5,
+                  borderBottom: "1px solid #F1F5F9",
+                  "&:last-child": {
+                    borderBottom: "none",
+                    pb: 0
+                  }
                 }}
               >
-                <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, minWidth: 0, flex: 1 }}>
                   <Avatar
                     id={`member-avatar-${c.userId}`}
                     src={c.photoURL}
                     {...({ referrerPolicy: "no-referrer" } as any)}
                     sx={{
-                      width: 36,
-                      height: 36,
-                      fontSize: "0.85rem",
+                      width: 40,
+                      height: 40,
+                      fontSize: "0.9rem",
                       fontWeight: 700,
                       bgcolor: c.role === "owner" ? "#FF385C" : "#008489",
                       color: "#FFFFFF",
@@ -301,13 +405,15 @@ export default function ManageTripTab({
                   >
                     {c.displayName ? c.displayName[0].toUpperCase() : "T"}
                   </Avatar>
-                  <Box>
-                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                  <Box sx={{ minWidth: 0, flex: 1 }}>
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap", mb: 0.25 }}>
                       <Typography
                         sx={{
-                          fontWeight: isMe ? 700 : 600,
+                          fontWeight: 800,
                           color: "#222222",
-                          fontSize: "0.85rem"
+                          fontSize: "0.95rem",
+                          lineHeight: 1.2,
+                          fontFamily: "var(--font-sans)"
                         }}
                       >
                         {displayName}
@@ -329,32 +435,30 @@ export default function ManageTripTab({
                         </Box>
                       )}
                     </Box>
-                    <Typography
-                      sx={{
-                        color: "#6A6A6A",
-                        fontSize: "0.75rem",
-                        fontWeight: 500,
-                        mt: 0.05,
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 0.35
-                      }}
-                    >
-                      {c.role === "owner" ? (
-                        <Shield size={11} className="text-[#FF385C]" />
-                      ) : (
-                        <UserCheck size={11} className="text-[#008489]" />
-                      )}
-                      <span>{roleLabel}</span>
-                    </Typography>
+                    <Box sx={{ display: "flex", flexDirection: { xs: "column", sm: "row" }, sm: { alignItems: "center" }, gap: { xs: 0.25, sm: 1 }, color: "#717171" }}>
+                      <Box
+                        sx={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 0.35,
+                          fontSize: "0.75rem",
+                          fontWeight: 700,
+                          color: c.role === "owner" ? "#FF385C" : "#008489"
+                        }}
+                      >
+                        {c.role === "owner" ? (
+                          <Shield size={11} />
+                        ) : (
+                          <UserCheck size={11} />
+                        )}
+                        <span>{roleLabel}</span>
+                      </Box>
+                      <Typography sx={{ fontSize: "0.75rem", color: "#8E8E8E", display: { xs: "none", sm: "block" } }}>•</Typography>
+                      <Typography sx={{ fontSize: "0.75rem", color: "#6A6A6A", wordBreak: "break-all" }}>
+                        {c.email}
+                      </Typography>
+                    </Box>
                   </Box>
-                </Box>
-
-                {/* Additional metadata info (email / role badge) */}
-                <Box sx={{ textAlign: "right" }}>
-                  <Typography sx={{ color: "#9A9A9A", fontSize: "0.72rem" }}>
-                    {c.email}
-                  </Typography>
                 </Box>
               </Box>
             );
@@ -439,35 +543,21 @@ export default function ManageTripTab({
             Are you sure you want to delete <strong>{trip.name}</strong>? This action is permanent and cannot be undone. All activities and active collaboration invites will be lost.
           </DialogContentText>
         </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2, gap: 1 }}>
-          <Button 
+        <DialogActions sx={{ px: 3, pb: 3, gap: 1 }}>
+          <PillButton 
             onClick={() => setDeleteDialogOpen(false)} 
             disabled={isDeleting}
-            sx={{ 
-              textTransform: "none", 
-              color: "#6A6A6A", 
-              fontWeight: 700,
-              fontSize: "0.82rem" 
-            }}
+            size="sm"
           >
             Cancel
-          </Button>
-          <Button 
+          </PillButton>
+          <DestructiveButton 
             onClick={handleDeleteConfirm} 
-            variant="contained"
             disabled={isDeleting}
-            sx={{ 
-              textTransform: "none", 
-              bgcolor: "#D32F2F", 
-              "&:hover": { bgcolor: "#B71C1C" },
-              fontWeight: 700,
-              borderRadius: "12px",
-              fontSize: "0.82rem",
-              px: 2.5
-            }}
+            size="sm"
           >
             {isDeleting ? "Deleting..." : "Delete Permanently"}
-          </Button>
+          </DestructiveButton>
         </DialogActions>
       </Dialog>
     </Box>

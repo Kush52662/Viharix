@@ -12,6 +12,7 @@ import {
 import { X, Compass } from "lucide-react";
 import { signInWithPopup, GoogleAuthProvider } from "firebase/auth";
 import { auth } from "../lib/firebase";
+import { tokens } from "../lib/theme";
 
 interface AuthModalProps {
   open: boolean;
@@ -56,9 +57,9 @@ export default function AuthModal({ open, onClose }: AuthModalProps) {
       id="auth-modal"
       sx={{
         "& .MuiDialog-paper": {
-          borderRadius: "24px",
+          borderRadius: `${tokens.radius.dialog}px`,
           p: 1.5,
-          boxShadow: "0 25px 50px -12px rgba(15, 118, 110, 0.25)",
+          boxShadow: tokens.shadow.overlay,
           bgcolor: "#FAF7F0" // Matches our base warm sand theme
         }
       }}

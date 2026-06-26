@@ -14,6 +14,7 @@ import {
   Typography,
 } from "@mui/material";
 import { Activity } from "../types";
+import { PrimaryButton, PillButton } from "./Button";
 
 interface AddToItineraryDialogProps {
   open: boolean;
@@ -102,13 +103,13 @@ export default function AddToItineraryDialog({
           </Box>
         </DialogContent>
 
-        <DialogActions sx={{ p: 3 }}>
-          <Button id="cancel-schedule-btn" onClick={onClose} color="inherit">
+        <DialogActions sx={{ p: 3, pt: 1 }}>
+          <PillButton id="cancel-schedule-btn" onClick={onClose} size="sm">
             Cancel
-          </Button>
-          <Button id="submit-schedule-btn" type="submit" variant="contained" color="primary">
+          </PillButton>
+          <PrimaryButton id="submit-schedule-btn" type="submit" size="sm">
             Confirm & Schedule
-          </Button>
+          </PrimaryButton>
         </DialogActions>
       </Box>
     </Dialog>

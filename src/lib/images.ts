@@ -1,13 +1,15 @@
-// High quality, beautiful Unsplash images for each travel category
+// High quality, beautiful Google Maps static/vector map fallbacks for each travel category to completely replace Unsplash.
+export const MAP_PLACEHOLDER_SVG = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="600" height="400" viewBox="0 0 600 400" style="background:%23f8fafc;"><path d="M0 50 L600 50 M0 100 L600 100 M0 150 L600 150 M0 200 L600 200 M0 250 L600 250 M0 300 L600 300 M0 350 L600 350 M75 0 L75 400 M150 0 L150 400 M225 0 L225 400 M300 0 L300 400 M375 0 L375 400 M450 0 L450 400 M525 0 L525 400" stroke="%23f1f5f9" stroke-width="2"/><path d="M0 100 Q150 150 300 100 T600 100" fill="none" stroke="%23e2e8f0" stroke-width="4"/><path d="M100 0 Q150 200 100 400" fill="none" stroke="%23e2e8f0" stroke-width="4"/><circle cx="300" cy="200" r="16" fill="%23ff385c" opacity="0.15"/><circle cx="300" cy="200" r="10" fill="%23ff385c" opacity="0.4"/><circle cx="300" cy="200" r="5" fill="%23ff385c"/></svg>`;
+
 export const CATEGORY_IMAGES: Record<string, string> = {
-  Food: "https://images.unsplash.com/photo-1504674900247-0877df9cc836?auto=format&fit=crop&w=800&q=80",
-  Sightseeing: "https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?auto=format&fit=crop&w=800&q=80",
-  Transit: "https://images.unsplash.com/photo-1488646953014-85cb44e25828?auto=format&fit=crop&w=800&q=80",
-  Shopping: "https://images.unsplash.com/photo-1483985988355-763728e1935b?auto=format&fit=crop&w=800&q=80",
-  Event: "https://images.unsplash.com/photo-1511795409834-ef04bbd61622?auto=format&fit=crop&w=800&q=80",
-  Work: "https://images.unsplash.com/photo-1497366216548-37526070297c?auto=format&fit=crop&w=800&q=80",
-  Rest: "https://images.unsplash.com/photo-1518609878373-06d740f60d8b?auto=format&fit=crop&w=800&q=80",
-  Custom: "https://images.unsplash.com/photo-1501785888041-af3ef285b470?auto=format&fit=crop&w=800&q=80",
+  Food: MAP_PLACEHOLDER_SVG,
+  Sightseeing: MAP_PLACEHOLDER_SVG,
+  Transit: MAP_PLACEHOLDER_SVG,
+  Shopping: MAP_PLACEHOLDER_SVG,
+  Event: MAP_PLACEHOLDER_SVG,
+  Work: MAP_PLACEHOLDER_SVG,
+  Rest: MAP_PLACEHOLDER_SVG,
+  Custom: MAP_PLACEHOLDER_SVG,
 };
 
 // Map category to a Tailwind badge color
@@ -22,28 +24,41 @@ export const CATEGORY_COLORS: Record<string, { bg: string; text: string; primary
   Custom: { bg: "bg-emerald-50", text: "text-emerald-700", primary: "#059669" },
 };
 
-export function getCategoryImage(category: string, title?: string): string {
-  // Simple heuristic: check if any title keywords match other categories
-  const normTitle = (title || "").toLowerCase();
-  if (normTitle.includes("cafe") || normTitle.includes("restaurant") || normTitle.includes("dinner") || normTitle.includes("food") || normTitle.includes("lunch") || normTitle.includes("breakfast") || normTitle.includes("coffee") || normTitle.includes("bar")) {
-    return CATEGORY_IMAGES.Food;
-  }
-  if (normTitle.includes("museum") || normTitle.includes("tour") || normTitle.includes("beach") || normTitle.includes("view") || normTitle.includes("park") || normTitle.includes("hike") || normTitle.includes("mountain") || normTitle.includes("temple") || normTitle.includes("cathedral") || normTitle.includes("castle")) {
-    return CATEGORY_IMAGES.Sightseeing;
-  }
-  if (normTitle.includes("flight") || normTitle.includes("train") || normTitle.includes("taxi") || normTitle.includes("bus") || normTitle.includes("drive") || normTitle.includes("subway") || normTitle.includes("car")) {
-    return CATEGORY_IMAGES.Transit;
-  }
-  if (normTitle.includes("mall") || normTitle.includes("shop") || normTitle.includes("market") || normTitle.includes("gift") || normTitle.includes("boutique")) {
-    return CATEGORY_IMAGES.Shopping;
-  }
-  if (normTitle.includes("concert") || normTitle.includes("show") || normTitle.includes("party") || normTitle.includes("festival") || normTitle.includes("theatre")) {
-    return CATEGORY_IMAGES.Event;
-  }
-  if (normTitle.includes("sleep") || normTitle.includes("relax") || normTitle.includes("nap") || normTitle.includes("spa") || normTitle.includes("hotel") || normTitle.includes("pool")) {
-    return CATEGORY_IMAGES.Rest;
+export const getMapsKey = (): string => {
+  return (
+    (typeof process !== 'undefined' ? process.env?.GOOGLE_MAPS_PLATFORM_KEY : "") ||
+    (import.meta as any).env?.VITE_GOOGLE_MAPS_PLATFORM_KEY ||
+    (globalThis as any).GOOGLE_MAPS_PLATFORM_KEY ||
+    ""
+  );
+};
+
+export function getCleanImage(url?: string, title?: string, location?: string, category?: string): string {
+  const apiKey = getMapsKey();
+  const isUnsplash = url && url.includes("unsplash.com");
+  
+  if (!url || isUnsplash) {
+    const searchCenter = location || title || category || "Travel";
+    if (apiKey) {
+      return `https://maps.googleapis.com/maps/api/staticmap?center=${encodeURIComponent(searchCenter)}&zoom=14&size=600x400&scale=2&maptype=roadmap&markers=color:0xff385c%7C${encodeURIComponent(searchCenter)}&key=${apiKey}`;
+    }
+    return MAP_PLACEHOLDER_SVG;
   }
   
-  const cleanCat = category as keyof typeof CATEGORY_IMAGES;
-  return CATEGORY_IMAGES[cleanCat] || CATEGORY_IMAGES.Custom;
+  return url;
+}
+
+export function getCleanMediaArray(media?: string[], title?: string, location?: string, category?: string): string[] {
+  if (!media || media.length === 0) {
+    return [getCleanImage(undefined, title, location, category)];
+  }
+  const cleaned = media.filter(m => !m.includes("unsplash.com"));
+  if (cleaned.length === 0) {
+    return [getCleanImage(undefined, title, location, category)];
+  }
+  return cleaned;
+}
+
+export function getCategoryImage(category: string, title?: string, location?: string): string {
+  return getCleanImage(undefined, title, location, category);
 }

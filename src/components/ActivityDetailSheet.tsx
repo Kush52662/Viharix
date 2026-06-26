@@ -15,6 +15,7 @@ import {
   Avatar,
   Tooltip,
 } from "@mui/material";
+import DOMPurify from "dompurify";
 import { 
   X, 
   MapPin, 
@@ -34,7 +35,7 @@ import {
 } from "lucide-react";
 import { APIProvider, Map, AdvancedMarker, Pin, useMapsLibrary } from "@vis.gl/react-google-maps";
 import { Activity, ItineraryPlacement } from "../types";
-import { CATEGORY_COLORS } from "../lib/images";
+import { CATEGORY_COLORS, getCleanImage, getCleanMediaArray, MAP_PLACEHOLDER_SVG } from "../lib/images";
 import RichTextEditor from "./RichTextEditor";
 
 const API_KEY =
@@ -59,6 +60,17 @@ interface ActivityDetailSheetProps {
 
 const STANDARD_CATEGORIES = ["Food", "Sightseeing", "Transit", "Shopping", "Event", "Work", "Rest"];
 
+function sanitizeHtml(unsafeHtml: string): string {
+  if (!unsafeHtml) return "";
+  return DOMPurify.sanitize(unsafeHtml, {
+    ALLOWED_TAGS: [
+      "p", "br", "strong", "b", "em", "i", "u", "s", "span", "h1", "h2", "h3", "h4", "h5", "h6",
+      "ul", "ol", "li", "a", "div", "blockquote", "pre", "code"
+    ],
+    ALLOWED_ATTR: ["href", "target", "rel", "class", "style"]
+  }) as string;
+}
+
 export default function ActivityDetailSheet({
   activity,
   placement,
@@ -73,6 +85,9 @@ export default function ActivityDetailSheet({
   onUpdatePlacement,
 }: ActivityDetailSheetProps) {
   if (!activity) return null;
+
+  const cleanMedia = getCleanMediaArray(activity.media, activity.title, activity.location, activity.category);
+  const cleanImageURL = getCleanImage(activity.imageURL, activity.title, activity.location, activity.category);
 
   const [isEditing, setIsEditing] = useState(false);
   const [activeMediaIndex, setActiveMediaIndex] = useState(0);
@@ -219,26 +234,26 @@ export default function ActivityDetailSheet({
       {/* Visual Header Banner */}
       <Box sx={{ position: "relative", height: 220, flexShrink: 0, bgcolor: "#111827", overflow: "hidden" }}>
         {/* If activity has media and it has elements, render a Carousel with indicators and controls, else fall back to imageURL */}
-        {activity.media && activity.media.length > 0 ? (
+        {cleanMedia && cleanMedia.length > 0 ? (
           <Box sx={{ width: "100%", height: "100%", position: "relative" }}>
             <img
-              src={activity.media[activeMediaIndex]}
+              src={cleanMedia[activeMediaIndex]}
               alt={`${activity.title} ${activeMediaIndex + 1}`}
               style={{ width: "100%", height: "100%", objectFit: "cover", transition: "opacity 0.3s ease-in-out" }}
               referrerPolicy="no-referrer"
               onError={(e) => {
-                e.currentTarget.src = `https://picsum.photos/seed/${activity.id || 'activity'}-${activeMediaIndex}/600/400`;
+                e.currentTarget.src = MAP_PLACEHOLDER_SVG;
               }}
             />
 
             {/* Carousel navigation controls */}
-            {activity.media.length > 1 && (
+            {cleanMedia.length > 1 && (
               <>
                 <IconButton
                   size="small"
                   onClick={(e) => {
                     e.stopPropagation();
-                    setActiveMediaIndex((prev) => (prev === 0 ? activity.media!.length - 1 : prev - 1));
+                    setActiveMediaIndex((prev) => (prev === 0 ? cleanMedia.length - 1 : prev - 1));
                   }}
                   sx={{
                     position: "absolute",
@@ -260,7 +275,7 @@ export default function ActivityDetailSheet({
                   size="small"
                   onClick={(e) => {
                     e.stopPropagation();
-                    setActiveMediaIndex((prev) => (prev === activity.media!.length - 1 ? 0 : prev + 1));
+                    setActiveMediaIndex((prev) => (prev === cleanMedia.length - 1 ? 0 : prev + 1));
                   }}
                   sx={{
                     position: "absolute",
@@ -293,7 +308,7 @@ export default function ActivityDetailSheet({
                     borderRadius: "99px",
                   }}
                 >
-                  {activity.media.map((_, idx) => (
+                  {cleanMedia.map((_, idx) => (
                     <Box
                       key={idx}
                       onClick={(e) => {
@@ -316,12 +331,12 @@ export default function ActivityDetailSheet({
           </Box>
         ) : (
           <img
-            src={activity.imageURL}
+            src={cleanImageURL}
             alt={activity.title}
             style={{ width: "100%", height: "100%", objectFit: "cover" }}
             referrerPolicy="no-referrer"
             onError={(e) => {
-              e.currentTarget.src = `https://picsum.photos/seed/${activity.id || 'activity'}/600/400`;
+              e.currentTarget.src = MAP_PLACEHOLDER_SVG;
             }}
           />
         )}
@@ -507,8 +522,8 @@ export default function ActivityDetailSheet({
 
                 {activity.rating && (
                   <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, mt: 0.8, mb: 0.5 }}>
-                    <Star size={16} fill="#FFB238" color="#FFB238" />
-                    <Typography sx={{ fontSize: "14px", fontWeight: "bold", color: "#1F2937" }}>
+                    <Star size={16} fill="#222222" color="#222222" />
+                    <Typography sx={{ fontSize: "14px", fontWeight: "bold", color: "#222222" }}>
                       {activity.rating}
                     </Typography>
                     <Typography sx={{ fontSize: "12px", color: "#6B7280" }}>
@@ -653,15 +668,16 @@ export default function ActivityDetailSheet({
                   id="detail-notes" 
                   className="rich-text-content"
                   sx={{ 
-                    bgcolor: "rgba(255, 56, 92, 0.03)", 
+                    bgcolor: "#FAFAFA", 
                     p: 2, 
-                    borderRadius: 3, 
-                    borderLeft: "4px solid #FF385C",
+                    borderRadius: "6px", 
+                    border: "1px solid #EBEBEB",
+                    borderLeft: "3px solid #FF385C",
                     "& ul": { listStyleType: "disc", pl: 2, my: 0.5 },
                     "& ol": { listStyleType: "decimal", pl: 2, my: 0.5 },
                     "& p": { my: 0.5 },
                   }}
-                  dangerouslySetInnerHTML={{ __html: activity.notes }}
+                  dangerouslySetInnerHTML={{ __html: sanitizeHtml(activity.notes) }}
                 />
               </Box>
             )}

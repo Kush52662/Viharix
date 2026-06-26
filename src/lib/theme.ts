@@ -1,5 +1,19 @@
 import { createTheme } from "@mui/material/styles";
 
+export const tokens = {
+  shadow: {
+    card: "rgba(0, 0, 0, 0.04) 0px 4px 12px",
+    float: "rgba(0, 0, 0, 0.08) 0px 8px 24px",
+    overlay: "rgba(0, 0, 0, 0.12) 0px 12px 32px",
+  },
+  radius: {
+    card: 14,
+    dialog: 20,
+    pill: 9999,
+    nav: 28,
+  },
+};
+
 export const theme = createTheme({
   palette: {
     primary: {
@@ -22,63 +36,91 @@ export const theme = createTheme({
   typography: {
     fontFamily: '"Inter", "Helvetica", "Arial", sans-serif',
     h1: {
-      fontSize: "1.6rem",
-      fontWeight: 700,
-      letterSpacing: "-0.02em",
+      fontSize: "2rem", // display
+      fontWeight: 800,
+      letterSpacing: "-0.03em",
+      lineHeight: 1.2,
       color: "#222222",
     },
     h2: {
-      fontSize: "1.35rem",
+      fontSize: "1.5rem", // pageTitle
       fontWeight: 700,
-      letterSpacing: "-0.015em",
+      letterSpacing: "-0.02em",
+      lineHeight: 1.3,
       color: "#222222",
     },
     h3: {
-      fontSize: "1.15rem",
+      fontSize: "1.15rem", // sectionTitle
       fontWeight: 600,
+      letterSpacing: "-0.01em",
+      lineHeight: 1.4,
       color: "#222222",
     },
     h4: {
-      fontSize: "1.05rem",
+      fontSize: "0.95rem", // cardTitle
       fontWeight: 600,
+      lineHeight: 1.4,
       color: "#222222",
     },
     h5: {
-      fontSize: "0.95rem",
+      fontSize: "0.95rem", // fallback cardTitle
       fontWeight: 600,
+      lineHeight: 1.4,
       color: "#222222",
     },
     h6: {
-      fontSize: "0.875rem",
+      fontSize: "0.875rem", // sub cardTitle / bodyBold
       fontWeight: 600,
+      lineHeight: 1.4,
       color: "#222222",
     },
     subtitle1: {
-      fontSize: "0.85rem",
+      fontSize: "0.875rem", // bodySemiBold
       fontWeight: 600,
+      lineHeight: 1.4,
       color: "#222222",
     },
     subtitle2: {
-      fontSize: "0.78rem",
-      fontWeight: 500,
+      fontSize: "0.75rem", // captionSemiBold
+      fontWeight: 600,
+      lineHeight: 1.4,
       color: "#6A6A6A",
     },
     body1: {
-      fontSize: "0.82rem",
+      fontSize: "0.875rem", // body
+      fontWeight: 400,
+      lineHeight: 1.5,
       color: "#222222",
     },
     body2: {
-      fontSize: "0.75rem",
+      fontSize: "0.875rem", // bodyMuted (aligned size to 0.875rem as requested for cohesive layout)
+      fontWeight: 400,
+      lineHeight: 1.5,
+      color: "#6A6A6A",
+    },
+    caption: {
+      fontSize: "0.75rem", // caption
+      fontWeight: 500,
+      lineHeight: 1.4,
+      color: "#6A6A6A",
+    },
+    overline: {
+      fontSize: "0.65rem", // microLabel
+      fontWeight: 700,
+      textTransform: "uppercase",
+      letterSpacing: "0.05em",
+      lineHeight: 1.4,
       color: "#6A6A6A",
     },
     button: {
-      fontSize: "0.78rem",
+      fontSize: "0.875rem", // button
       textTransform: "none", // Avoid all-caps
       fontWeight: 600,
+      lineHeight: 1.4,
     },
   },
   shape: {
-    borderRadius: 14, // Airbnb medium rounding (14px)
+    borderRadius: tokens.radius.card, // Airbnb medium rounding (14px)
   },
   components: {
     MuiButton: {
@@ -139,9 +181,17 @@ export const theme = createTheme({
     MuiCard: {
       styleOverrides: {
         root: {
-          borderRadius: 14,
-          boxShadow: "rgba(0, 0, 0, 0.04) 0px 4px 12px", // Airbnb light card shadow
+          borderRadius: tokens.radius.card,
+          boxShadow: tokens.shadow.card,
           border: "1px solid #EBEBEB",
+        },
+      },
+    },
+    MuiDialog: {
+      styleOverrides: {
+        paper: {
+          borderRadius: tokens.radius.dialog,
+          boxShadow: tokens.shadow.overlay,
         },
       },
     },

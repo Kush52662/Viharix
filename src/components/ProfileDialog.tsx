@@ -17,6 +17,7 @@ import { Camera, X } from "lucide-react";
 import { updateProfile, User as FirebaseUser } from "firebase/auth";
 import { doc, setDoc } from "firebase/firestore";
 import { db, handleFirestoreError, OperationType } from "../lib/firebase";
+import { PrimaryButton, PillButton } from "./Button";
 
 interface ProfileDialogProps {
   open: boolean;
@@ -206,20 +207,19 @@ export default function ProfileDialog({
           />
         </DialogContent>
 
-        <DialogActions sx={{ p: 3, pt: 0 }}>
-          <Button id="cancel-profile-btn" onClick={onClose} color="inherit" disabled={saving}>
+        <DialogActions sx={{ p: 3, pt: 0.5 }}>
+          <PillButton id="cancel-profile-btn" onClick={onClose} disabled={saving} size="sm">
             Cancel
-          </Button>
-          <Button
+          </PillButton>
+          <PrimaryButton
             id="submit-profile-btn"
             type="submit"
-            variant="contained"
-            color="primary"
             disabled={saving}
+            size="sm"
             startIcon={saving ? <CircularProgress size={16} color="inherit" /> : null}
           >
             {saving ? "Saving..." : "Save Changes"}
-          </Button>
+          </PrimaryButton>
         </DialogActions>
       </Box>
     </Dialog>

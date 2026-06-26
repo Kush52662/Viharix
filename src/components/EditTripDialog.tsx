@@ -16,6 +16,7 @@ import {
 } from "@mui/material";
 import { X, Calendar, MapPin, Sparkles, Users, Edit2, Eye } from "lucide-react";
 import { Trip, Collaborator } from "../types";
+import { PrimaryButton, PillButton } from "./Button";
 
 interface EditTripDialogProps {
   open: boolean;
@@ -197,38 +198,21 @@ export const EditTripDialog: React.FC<EditTripDialogProps> = ({
         </Box>
       </DialogContent>
 
-      <DialogActions sx={{ px: 2, pb: 1, pt: 0.5 }}>
-        <Button
+      <DialogActions sx={{ px: 2, pb: 2, pt: 0.5 }}>
+        <PillButton
           onClick={onClose}
           disabled={loading}
-          sx={{
-            textTransform: "none",
-            fontWeight: 600,
-            fontSize: "0.82rem",
-            borderRadius: "10px",
-            px: 2,
-            color: "text.secondary"
-          }}
+          size="sm"
         >
           Cancel
-        </Button>
-        <Button
-          variant="contained"
+        </PillButton>
+        <PrimaryButton
           onClick={handleSave}
           disabled={loading}
-          sx={{
-            textTransform: "none",
-            fontWeight: 700,
-            fontSize: "0.82rem",
-            borderRadius: "10px",
-            px: 2.5,
-            bgcolor: "#FF385C",
-            color: "#FFFFFF",
-            "&:hover": { bgcolor: "#E00B41" }
-          }}
+          size="sm"
         >
           {loading ? "Saving..." : "Save Changes"}
-        </Button>
+        </PrimaryButton>
       </DialogActions>
     </Dialog>
   );

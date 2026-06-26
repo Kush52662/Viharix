@@ -1,8 +1,9 @@
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI, Type, Modality } from "@google/genai";
 import dotenv from "dotenv";
+import { WebSocketServer } from "ws";
 
 dotenv.config();
 
@@ -23,6 +24,19 @@ const ai = new GoogleGenAI({
 
 // Category list as required
 const VALID_CATEGORIES = ["Food", "Sightseeing", "Transit", "Shopping", "Event", "Work", "Rest", "Custom"];
+
+function cleanIdeasOfUnsplash(ideas: any[]): any[] {
+  return ideas.map(idea => {
+    const cleaned = { ...idea };
+    if (cleaned.media) {
+      cleaned.media = (cleaned.media as string[]).filter(m => m && !m.includes("unsplash.com"));
+      if (cleaned.media.length === 0) {
+        delete cleaned.media;
+      }
+    }
+    return cleaned;
+  });
+}
 
 // API route to generate initial or additional activity ideas
 app.post("/api/generate-ideas", async (req, res) => {
@@ -59,12 +73,12 @@ app.post("/api/generate-ideas", async (req, res) => {
       - location: The actual physical address or exact area on Google Maps (e.g. "Emerald Bay Rd, South Lake Tahoe, CA 96150").
       - estimatedDuration: e.g. "2 hours", "45 mins", "Half day".
       - rating: The actual, live, real-world Google Maps rating and review count (e.g., '4.8 (10,402 reviews)'). Retrieve it from live searches.
-      - imageKeywords: Specific Unsplash keywords or high-quality descriptors representing this exact place for photos.
+      - imageKeywords: Detailed search keywords or location descriptors suitable for locating real photos on Google Maps or Google Search for this exact place.
     `;
 
-    console.log(`[Gemini API] Step 1: Querying web/search grounding with gemini-3.1-flash-lite for ${queryLocation}...`);
+    console.log(`[Gemini API] Step 1: Querying web/search grounding with gemini-3.5-flash for ${queryLocation}...`);
     const researchResponse = await ai.models.generateContent({
-      model: "gemini-3.1-flash-lite",
+      model: "gemini-3.5-flash",
       contents: researchPrompt,
       config: {
         tools: [{ googleSearch: {} }] // Enable Google Search Grounding to find actual places
@@ -74,22 +88,20 @@ app.post("/api/generate-ideas", async (req, res) => {
     const groundedText = researchResponse.text || "";
     console.log(`[Gemini API] Step 1 complete. Grounded research text received. length: ${groundedText.length}`);
 
-    // Step 2: Format research text into strict structured JSON and resolve high-quality Unsplash image URLs
+    // Step 2: Format research text into strict structured JSON and resolve high-quality image URLs
     const structurePrompt = `
       You are a precise travel data parser. Your task is to parse the raw travel research text below and format it into the exact requested JSON schema of 6 activity ideas.
       
-      For the Unsplash media links, you MUST generate 3 to 4 high-quality, working, and aesthetically beautiful Unsplash photo URLs for each place. 
-      Format the URLs exactly as:
-      "https://images.unsplash.com/photo-[id]?auto=format&fit=crop&w=800&q=80"
-      Use real Unsplash image IDs (e.g., "photo-1502602898657-3e91760cbb34" or "photo-1507525428034-b723cf961d3e") that represent the city, landmark scenery, or food type.
+      For the media links, you MUST NOT generate any Unsplash URLs. They must strictly be Google Maps photo/image URLs or real, live, working photos from Google Search results.
+      Retrieve and output 3 to 4 distinct, real, high-quality, and working image/photo URLs directly from Google Maps (such as street view images or official places photos) or real Google search results representing each place.
       
       Research data to parse:
       ${groundedText}
     `;
 
-    console.log("[Gemini API] Step 2: Structuring parsed travel data with gemini-3.1-flash-lite...");
+    console.log("[Gemini API] Step 2: Structuring parsed travel data with gemini-3.5-flash...");
     const structureResponse = await ai.models.generateContent({
-      model: "gemini-3.1-flash-lite",
+      model: "gemini-3.5-flash",
       contents: structurePrompt,
       config: {
         responseMimeType: "application/json",
@@ -114,7 +126,7 @@ app.post("/api/generate-ideas", async (req, res) => {
                   rating: { type: Type.STRING, description: "Real Google Maps rating & review count, e.g. '4.8 (1,234 reviews)'" },
                   media: {
                     type: Type.ARRAY,
-                    description: "An array of 3-4 distinct high-quality Unsplash image URLs representing the place.",
+                    description: "An array of 3-4 distinct real Google Maps photo URLs or real photo URLs from google search results.",
                     items: { type: Type.STRING }
                   }
                 }
@@ -137,7 +149,7 @@ app.post("/api/generate-ideas", async (req, res) => {
     });
 
     console.log(`[Gemini API] Success! Structured ${validatedIdeas.length} travel ideas.`);
-    return res.json({ ideas: validatedIdeas });
+    return res.json({ ideas: cleanIdeasOfUnsplash(validatedIdeas) });
 
   } catch (error: any) {
     console.error("Error generating ideas with Gemini, falling back to rich offline generator:", error);
@@ -829,7 +841,7 @@ app.post("/api/generate-ideas", async (req, res) => {
       ];
     }
     
-    return res.json({ ideas: sampleIdeas });
+    return res.json({ ideas: cleanIdeasOfUnsplash(sampleIdeas) });
   }
 });
 
@@ -860,10 +872,10 @@ app.post("/api/chat", async (req, res) => {
       };
     });
 
-    let modelName = "gemini-3.1-flash-lite"; // STRICT model requested by user
+    let modelName = "gemini-3.5-flash"; // More robust model with higher quotas to avoid 429 resource exhausted errors
     
     // Strict 100 words instruction to enforce extreme mobile-friendliness and structured places JSON
-    const mobileFriendlyInstruction = "\n\nCRITICAL: This is a mobile-friendly travel planner app. Keep your conversational responses extremely short, concise, and professional (Strictly under 100 words always).\n\nIf you recommend, mention, or suggest any specific real-world places, attractions, restaurants, hotels, or activities, you MUST also append a structured JSON block containing those places at the very end of your response, enclosed exactly between ```places-json and ```.\nEach item in the JSON array must be an object with:\n- \"title\": Exact name of the place.\n- \"category\": One of 'Food', 'Sightseeing', 'Transit', 'Shopping', 'Event', 'Work', 'Rest'.\n- \"location\": Exact address or area on Google Maps.\n- \"notes\": Very short tips (under 15 words) for mobile view.\n- \"estimatedDuration\": e.g. '2 hours', '45 mins'.\n- \"rating\": e.g. '4.8 (1,234 reviews)' or '4.5'.\n\nExample format at the end:\n```places-json\n[\n  {\n    \"title\": \"Eiffel Tower\",\n    \"category\": \"Sightseeing\",\n    \"location\": \"Champ de Mars, 5 Avenue Anatole France, 75007 Paris, France\",\n    \"notes\": \"Pre-book online tickets to avoid massive lines.\",\n    \"estimatedDuration\": \"2 hours\",\n    \"rating\": \"4.7 (140,000 reviews)\"\n  }\n]\n```\nDo not mention the JSON block in your conversational text. Just append it quietly. Your conversational text (excluding the JSON block) MUST remain under 100 words.";
+    const mobileFriendlyInstruction = "\n\nCRITICAL: This is a mobile-friendly travel planner app. Keep your conversational responses extremely short, concise, and professional (Strictly under 15 words for normal chat or greetings, and under 80 words for detailed recommendations).\n\nIf the user is just saying hello, hi, or greetings, reply warmly in under 10 words (e.g. \"Hi there! How can I help you plan your trip?\") and DO NOT recommend or suggest any locations/activities.\n\nOnly if you recommend, mention, or suggest any specific real-world places, attractions, restaurants, hotels, or activities, you MUST also append a structured JSON block containing those places at the very end of your response, enclosed exactly between ```places-json and ```.\nEach item in the JSON array must be an object with:\n- \"title\": Exact name of the place.\n- \"category\": One of 'Food', 'Sightseeing', 'Transit', 'Shopping', 'Event', 'Work', 'Rest'.\n- \"location\": Exact address or area on Google Maps.\n- \"notes\": Very short tips (under 15 words) for mobile view.\n- \"estimatedDuration\": e.g. '2 hours', '45 mins'.\n- \"rating\": e.g. '4.8 (1,234 reviews)' or '4.5'.\n\nExample format at the end:\n```places-json\n[\n  {\n    \"title\": \"Eiffel Tower\",\n    \"category\": \"Sightseeing\",\n    \"location\": \"Champ de Mars, 5 Avenue Anatole France, 75007 Paris, France\",\n    \"notes\": \"Pre-book online tickets to avoid massive lines.\",\n    \"estimatedDuration\": \"2 hours\",\n    \"rating\": \"4.7 (140,000 reviews)\"\n  }\n]\n```\nDo not mention the JSON block in your conversational text. Just append it quietly. Your conversational text (excluding the JSON block) MUST remain extremely concise and under 80 words.";
     
     const config: any = {
       systemInstruction: (systemInstruction || "You are an expert travel planner assistant.") + mobileFriendlyInstruction
@@ -913,7 +925,7 @@ app.post("/api/chat", async (req, res) => {
     } catch (primaryErr: any) {
       console.warn("[Gemini API] Primary generation failed. Invoking safe fallback flow...", primaryErr.message || primaryErr);
       
-      // Sequential fallback list strictly using gemini-3.1-flash-lite as requested by user
+      // Sequential fallback list strictly using gemini-3.1-flash-lite if gemini-3.5-flash fails
       const fallbackModels = ["gemini-3.1-flash-lite"];
       let success = false;
 
@@ -997,6 +1009,201 @@ app.post("/api/chat", async (req, res) => {
   }
 });
 
+function setupLiveWebSocket(server: any) {
+  const wss = new WebSocketServer({ noServer: true });
+
+  server.on("upgrade", (request: any, socket: any, head: any) => {
+    const url = new URL(request.url || "", `http://${request.headers.host || "localhost"}`);
+    if (url.pathname === "/api/live") {
+      wss.handleUpgrade(request, socket, head, (ws) => {
+        wss.emit("connection", ws, request);
+      });
+    } else {
+      socket.destroy();
+    }
+  });
+
+  wss.on("connection", async (clientWs, request: any) => {
+    console.log("[Live API] New client WebSocket connection established.");
+    
+    if (!process.env.GEMINI_API_KEY) {
+      console.error("[Live API] Missing GEMINI_API_KEY");
+      clientWs.send(JSON.stringify({ error: "GEMINI_API_KEY is missing on the server." }));
+      clientWs.close();
+      return;
+    }
+
+    try {
+      // Parse query parameters passed by the client
+      const url = new URL(request.url || "", `http://${request.headers.host || "localhost"}`);
+      const destination = url.searchParams.get("destination") || "";
+      const tripName = url.searchParams.get("tripName") || "";
+      const roleInstruction = url.searchParams.get("roleInstruction") || "You are an expert travel planner assistant.";
+      const mode = url.searchParams.get("mode") || "standard";
+
+      const tripContext = `You are helping plan a trip named "${tripName}" located in/to "${destination}".
+CRITICAL: If the user is just saying hello, hi, hey, or greeting you, DO NOT suggest any random recommendations or list places. Instead, respond with a short, friendly greeting under 10 words (e.g. "Hi there! How can I help you plan your trip?").
+Only provide highly specific local recommendations if the user explicitly asks for them or if they are highly relevant to their questions. Keep your conversational responses clean, brief, and under 15 words.`;
+
+      // Specific constraint for voice mode to be concise and natural, preventing code/JSON reading
+      const voiceSpecificInstruction = `\n\nCRITICAL: This is a mobile-friendly voice-activated travel planner. Keep your voice responses extremely clear, warm, short, and concise (Strictly under 15 words). Speak naturally.
+Whenever you suggest, mention, or recommend any attractions, restaurants, hotels, sights, or activities, you MUST call the "suggest_places" tool. This will display them on the user's screen in real-time. Do not read out lists of places or addresses verbally; let the tool cards do the visual display.`;
+
+      const systemInstructionCombined = `${roleInstruction}\n\n${tripContext}${voiceSpecificInstruction}`;
+
+      const suggestPlacesTool = {
+        functionDeclarations: [
+          {
+            name: "suggest_places",
+            description: "Call this tool ONLY when recommending or suggesting specific attractions, restaurants, hotels, sights, or activities to the user. This will render beautiful interactive cards on their screen in real-time.",
+            parameters: {
+              type: Type.OBJECT,
+              properties: {
+                places: {
+                  type: Type.ARRAY,
+                  description: "The list of suggested places",
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      title: { type: Type.STRING, description: "The exact name of the place, e.g. Eiffel Tower" },
+                      category: { type: Type.STRING, description: "Category: 'Food', 'Sightseeing', 'Transit', 'Shopping', 'Event', 'Work', 'Rest', or 'Custom'" },
+                      location: { type: Type.STRING, description: "Shorthand address or neighborhood, e.g. Paris, France" },
+                      notes: { type: Type.STRING, description: "A very brief tip or comment (under 15 words) for mobile view" },
+                      estimatedDuration: { type: Type.STRING, description: "Estimated time to spend there, e.g., '2 hours'" },
+                      rating: { type: Type.STRING, description: "Optional rating and reviews if known, e.g., '4.8 (142k reviews)'" }
+                    },
+                    required: ["title", "category", "location", "notes", "estimatedDuration"]
+                  }
+                }
+              },
+              required: ["places"]
+            }
+          }
+        ]
+      };
+
+      const toolsConfig = mode === "search" 
+        ? [{ googleSearch: {} }, suggestPlacesTool] 
+        : [suggestPlacesTool];
+
+      const session = await ai.live.connect({
+        model: "gemini-3.1-flash-live-preview",
+        config: {
+          responseModalities: [Modality.AUDIO],
+          speechConfig: {
+            voiceConfig: { prebuiltVoiceConfig: { voiceName: "Zephyr" } },
+          },
+          outputAudioTranscription: {},
+          systemInstruction: systemInstructionCombined,
+          tools: toolsConfig,
+        },
+        callbacks: {
+          onmessage: (message: any) => {
+            // Forward tool calls to the client
+            if (message.toolCall?.functionCalls) {
+              const calls = message.toolCall.functionCalls;
+              for (const call of calls) {
+                if (call.name === "suggest_places") {
+                  console.log("[Live API] Forwarding suggest_places tool call:", call.args);
+                  clientWs.send(JSON.stringify({
+                    toolCall: {
+                      name: call.name,
+                      args: call.args,
+                      id: call.id
+                    }
+                  }));
+
+                  // Automatically respond to Gemini to keep the live session moving
+                  try {
+                    session.sendToolResponse({
+                      functionResponses: [
+                        {
+                          name: call.name,
+                          id: call.id,
+                          response: { output: { success: true } }
+                        }
+                      ]
+                    });
+                  } catch (err) {
+                    console.error("[Live API] Error sending tool response:", err);
+                  }
+                }
+              }
+            }
+
+            const content = message.serverContent?.modelTurn?.parts?.[0];
+            const audio = content?.inlineData?.data;
+            const text = content?.text;
+            
+            if (audio) {
+              clientWs.send(JSON.stringify({ audio }));
+            }
+            if (text) {
+              clientWs.send(JSON.stringify({ text }));
+            }
+            if (message.serverContent?.interrupted) {
+              clientWs.send(JSON.stringify({ interrupted: true }));
+            }
+            if (message.serverContent?.turnComplete) {
+              clientWs.send(JSON.stringify({ turnComplete: true }));
+            }
+          },
+        },
+      });
+
+      console.log("[Live API] Connected to Gemini Live session.");
+
+      clientWs.on("message", (data) => {
+        try {
+          const parsed = JSON.parse(data.toString());
+          if (parsed.audio) {
+            session.sendRealtimeInput({
+              audio: { data: parsed.audio, mimeType: "audio/pcm;rate=16000" },
+            });
+          }
+          if (parsed.toolResponse) {
+            const { name, id, output } = parsed.toolResponse;
+            try {
+              session.sendToolResponse({
+                functionResponses: [
+                  {
+                    name,
+                    id,
+                    response: { output: output || { success: true } }
+                  }
+                ]
+              });
+            } catch (err) {
+              console.error("[Live API] Error forwarding client tool response:", err);
+            }
+          }
+        } catch (e) {
+          console.error("[Live API] Error parsing client message:", e);
+        }
+      });
+
+      clientWs.on("close", () => {
+        console.log("[Live API] Client WebSocket connection closed.");
+        try {
+          session.close();
+        } catch (e) {}
+      });
+
+      clientWs.on("error", (err) => {
+        console.error("[Live API] Client WebSocket error:", err);
+        try {
+          session.close();
+        } catch (e) {}
+      });
+
+    } catch (err: any) {
+      console.error("[Live API] Error connecting to Gemini Live:", err);
+      clientWs.send(JSON.stringify({ error: "Failed to connect to Gemini Live session: " + err.message }));
+      clientWs.close();
+    }
+  });
+}
+
 // Serve frontend with Vite middleware in development
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {
@@ -1013,9 +1220,11 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
+  const server = app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on port ${PORT}`);
   });
+
+  setupLiveWebSocket(server);
 }
 
 startServer();
